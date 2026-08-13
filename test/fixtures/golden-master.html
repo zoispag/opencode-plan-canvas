@@ -1,0 +1,762 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Widget Service: consolidate the CLI into the shared worker image (k8s queue/blob flow)</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2430; --border:#30363d;
+    --ink:#e6edf3; --muted:#9198a1; --faint:#6e7681;
+    --accent:#58a6ff; --go:#7ee787; --warn:#e3b341; --danger:#f85149;
+    --purple:#bc8cff; --pink:#f778ba; --cyan:#39c5cf;
+    --w1:#1f6feb; --w2:#238636; --w3:#9e6a03; --w4:#8957e5; --wf:#bc4c00;
+    --chip:#21262d;
+    --radius:12px; --shadow:0 1px 0 rgba(255,255,255,.03), 0 8px 24px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:radial-gradient(1200px 600px at 20% -10%, #12233b 0%, var(--bg) 55%) fixed;
+    color:var(--ink); font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  code,kbd,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:1180px;margin:0 auto;padding:32px 22px 96px}
+  header.hero{
+    border:1px solid var(--border);border-radius:16px;padding:26px 28px;margin-bottom:26px;
+    background:linear-gradient(135deg, rgba(88,166,255,.10), rgba(188,140,255,.06)); box-shadow:var(--shadow);
+  }
+  .kicker{color:var(--accent);font-weight:700;letter-spacing:.14em;text-transform:uppercase;font-size:11px}
+  h1{margin:.35em 0 .2em;font-size:29px;line-height:1.15;letter-spacing:-.01em}
+  .subtitle{color:var(--muted);max-width:80ch;font-size:14.5px}
+  .repos{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+  .repo{font-size:12px;padding:5px 11px;border-radius:999px;background:var(--chip);border:1px solid var(--border);color:var(--ink)}
+  .repo.archived{color:var(--faint);text-decoration:line-through}
+  .repo b{color:var(--go)}
+  .metagrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:18px}
+  .meta{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+  .meta .l{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)}
+  .meta .v{margin-top:4px;font-weight:600}
+  nav.toc{position:sticky;top:0;z-index:20;display:flex;flex-wrap:wrap;gap:6px;
+    padding:10px 0 12px;margin:-8px 0 22px;backdrop-filter:blur(8px);
+    background:linear-gradient(var(--bg),rgba(13,17,23,.65));border-bottom:1px solid var(--border)}
+  nav.toc a{font-size:12.5px;padding:6px 11px;border-radius:8px;background:var(--panel);border:1px solid var(--border);color:var(--muted)}
+  nav.toc a:hover{color:var(--ink);border-color:var(--accent);text-decoration:none}
+  section{margin:34px 0}
+  h2{font-size:19px;margin:0 0 14px;display:flex;align-items:center;gap:10px}
+  h2 .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+  h3{font-size:14px;color:var(--muted);margin:18px 0 8px;text-transform:uppercase;letter-spacing:.06em}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr}}
+  ul.clean{margin:.2em 0;padding-left:1.15em}
+  ul.clean li{margin:.28em 0}
+  .muted{color:var(--muted)}
+  .mono-inline{background:var(--panel2);border:1px solid var(--border);border-radius:5px;padding:.5px 5px;font-size:12.5px}
+  .cat{font-size:10.5px;font-weight:700;letter-spacing:.04em;padding:2px 7px;border-radius:6px;text-transform:uppercase;border:1px solid transparent;white-space:nowrap}
+  .cat.deep{background:rgba(88,166,255,.15);color:#79c0ff;border-color:rgba(88,166,255,.35)}
+  .cat.ultrabrain{background:rgba(188,140,255,.15);color:var(--purple);border-color:rgba(188,140,255,.35)}
+  .cat.quick{background:rgba(126,231,135,.13);color:var(--go);border-color:rgba(126,231,135,.3)}
+  .cat.unspecified-high{background:rgba(227,179,65,.13);color:var(--warn);border-color:rgba(227,179,65,.3)}
+  .cat.writing{background:rgba(57,197,207,.13);color:var(--cyan);border-color:rgba(57,197,207,.3)}
+  .cat.oracle{background:rgba(247,120,186,.14);color:var(--pink);border-color:rgba(247,120,186,.32)}
+  .repotag{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;background:var(--chip);border:1px solid var(--border);color:var(--muted)}
+  .repotag.x{color:var(--warn);border-color:rgba(227,179,65,.35)}
+  .waves{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px}
+  .wave{border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);overflow:hidden}
+  .wave > .whead{padding:11px 14px;font-weight:700;font-size:13px;letter-spacing:.03em;display:flex;justify-content:space-between;align-items:center;color:#fff}
+  .wave.w1 .whead{background:linear-gradient(90deg,var(--w1),#2b7de9)}
+  .wave.w2 .whead{background:linear-gradient(90deg,var(--w2),#2ea043)}
+  .wave.w3 .whead{background:linear-gradient(90deg,var(--w3),#bb8009)}
+  .wave.w4 .whead{background:linear-gradient(90deg,var(--w4),#a371f7)}
+  .wave.wf .whead{background:linear-gradient(90deg,var(--wf),#db6d28)}
+  .whead .cnt{font-size:11px;font-weight:600;opacity:.9;background:rgba(0,0,0,.25);padding:2px 8px;border-radius:999px}
+  .wbody{padding:10px;display:flex;flex-direction:column;gap:8px}
+  .tcard{border:1px solid var(--border);border-radius:9px;background:var(--panel2);padding:10px 11px;c‍ursor:pointer;transition:border-color .15s,transform .05s}
+  .tcard:hover{border-color:var(--accent)}
+  .tcard summary{list-style:none;outline:none}
+  .tcard summary::-webkit-details-marker{display:none}
+  .trow{display:flex;align-items:center;gap:8px}
+  .tid{font-weight:800;font-size:12px;color:var(--faint);min-width:26px}
+  .ttitle{font-weight:600;font-size:13px;flex:1;line-height:1.35}
+  .tmeta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .tbody{margin-top:10px;border-top:1px dashed var(--border);padding-top:10px;font-size:13px;color:var(--muted);display:flex;flex-direction:column;gap:9px}
+  .tbody .lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:700;margin-bottom:2px}
+  .tbody .box{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:8px 10px}
+  .tbody code{font-size:12px;color:var(--go)}
+  .dep{font-size:11px}
+  .dep .b{color:var(--danger)}.dep .a{color:var(--go)}
+  .qa{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;color:#c9d1d9;background:#0b0f14;border:1px solid var(--border);border-radius:7px;padding:9px 10px;overflow:auto}
+  .must{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:820px){.must{grid-template-columns:1fr}}
+  .must .col{border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px}
+  .must .have{background:linear-gradient(180deg,rgba(126,231,135,.06),transparent)}
+  .must .not{background:linear-gradient(180deg,rgba(248,81,73,.06),transparent)}
+  .must h4{margin:0 0 8px;font-size:13px}
+  .must .have h4{color:var(--go)}.must .not h4{color:var(--danger)}
+  .must .have li{list-style:"✓  "}
+  .must .not li{list-style:"✕  "}
+  .callout{border-left:3px solid var(--accent);background:var(--panel);border-radius:0 10px 10px 0;padding:12px 16px;margin:12px 0}
+  .callout.warn{border-color:var(--warn)}
+  .callout.danger{border-color:var(--danger)}
+  .callout.ok{border-color:var(--go)}
+  .callout .t{font-weight:700;margin-bottom:3px}
+  .flow{display:flex;align-items:center;flex-wrap:wrap;gap:8px;font-size:12.5px}
+  .flow .n{background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-weight:600}
+  .flow .arr{color:var(--faint)}
+  .flow .n.f{border-color:var(--wf);color:#ffa657}
+  .flow .n.gate{border-color:var(--go);color:var(--go)}
+  .decisions{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:820px){.decisions{grid-template-columns:1fr}}
+  .dcard{border:1px solid var(--border);border-radius:10px;padding:13px 15px;background:var(--panel)}
+  .dcard .name{font-weight:700;font-family:ui-monospace,monospace;font-size:12.5px;color:var(--warn)}
+  .badge{font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;text-transform:uppercase;letter-spacing:.05em}
+  .badge.resolved{background:rgba(126,231,135,.15);color:var(--go)}
+  .badge.open{background:rgba(227,179,65,.15);color:var(--warn)}
+  .badge.default{background:rgba(88,166,255,.13);color:var(--accent)}
+  .fwave{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+  .fcard{border:1px solid var(--border);border-left:3px solid var(--wf);border-radius:0 10px 10px 0;padding:13px 15px;background:var(--panel)}
+  .fcard .h{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+  .fcard .h b{font-size:13.5px}
+  .fcard .out{font-family:ui-monospace,monospace;font-size:11px;color:var(--faint);margin-top:8px;background:#0b0f14;border:1px solid var(--border);border-radius:6px;padding:6px 8px}
+  footer{margin-top:40px;border-top:1px solid var(--border);padding-top:16px;color:var(--faint);font-size:12.5px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+  .legend{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 0}
+  .hint{font-size:11.5px;color:var(--faint);margin-top:4px}
+  .done{color:var(--go);font-weight:700}
+  .repo.oos{color:var(--warn);border-color:rgba(227,179,65,.35)}
+  .badge.shipped{background:rgba(126,231,135,.15);color:var(--go)}
+  .wave.done .whead{background:linear-gradient(90deg,#2d6a34,#3fb950);opacity:.85}
+  .tcard.shipped{opacity:.82}
+  .flow .n.ok{border-color:var(--go);color:var(--go);opacity:.7}
+
+  /* Generator-only CSS additions */
+  
+  /* Neutral gray badge for unknown/unmapped agent categories (fallback) */
+  .cat.other{background:var(--chip);color:var(--muted);border-color:var(--border)}
+
+  /* v2 read-only interactivity (progressive enhancement, injected inline) */
+  .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 0 22px;padding:14px 16px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+  .controls[hidden]{display:none}
+  .controls-row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;width:100%}
+  .ctl-btn{font:inherit;font-size:13px;font-weight:600;color:var(--ink);background:var(--chip);border:1px solid var(--border);border-radius:8px;padding:6px 12px;cursor:pointer}
+  .ctl-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .ctl-field{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+  .ctl-field[hidden]{display:none}
+  .ctl-lbl{text-transform:uppercase;letter-spacing:.08em;font-weight:700;font-size:10px}
+  .ctl-sel,.ctl-inp{font:inherit;font-size:13px;color:var(--ink);background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:5px 9px}
+  .ctl-sel:focus,.ctl-inp:focus{outline:none;border-color:var(--accent)}
+  .ctl-jump .ctl-inp{min-width:150px}
+  .progressbar{position:relative;margin-top:18px;height:22px;background:var(--chip);border:1px solid var(--border);border-radius:999px;overflow:hidden}
+  .progressbar-fill{height:100%;background:linear-gradient(90deg,var(--w2),var(--go));transition:width .3s ease}
+  .progressbar-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--ink);letter-spacing:.03em}
+  .tcard.inprogress{outline:2px solid var(--warn);outline-offset:1px}
+  .tcard.highlight{outline:2px solid var(--accent);outline-offset:1px;animation:cv-flash 1.6s ease}
+  @keyframes cv-flash{0%{background:rgba(88,166,255,.18)}100%{background:transparent}}
+  .cv-hidden,.cv-status-hidden,.cv-cat-hidden{display:none}
+
+  .ctl-toggle{margin-left:auto}
+  .ctl-theme{display:inline-flex;align-items:center;gap:6px}
+  .ctl-theme .ctl-theme-ico{font-size:14px;line-height:1}
+
+  /* Part A: wider layout overrides (golden caps .wrap at 1180px) */
+  .wrap{max-width:min(96vw,1800px)}
+  .subtitle{max-width:90ch}
+  .waves{grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:18px}
+  .metagrid{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+  .fwave{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  @media(min-width:1500px){
+    .waves{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  }
+
+  /* Part B: light theme, opt-in via data-theme="light" (default dark untouched) */
+  :root[data-theme="light"]{
+    --bg:#ffffff; --panel:#f6f8fa; --panel2:#eaeef2; --border:#d0d7de;
+    --ink:#1f2328; --muted:#59636e; --faint:#818b98;
+    --accent:#0969da; --go:#1a7f37; --warn:#9a6700; --danger:#cf222e;
+    --purple:#8250df; --pink:#bf3989; --cyan:#1b7c83;
+    --w1:#0969da; --w2:#1a7f37; --w3:#9a6700; --w4:#8250df; --wf:#bc4c00;
+    --chip:#eff2f5;
+    --shadow:0 1px 0 rgba(27,31,36,.04), 0 3px 12px rgba(140,149,159,.2);
+  }
+  /* light overrides for golden's hardcoded (non-var) colors */
+  :root[data-theme="light"] body{
+    background:radial-gradient(1200px 600px at 20% -10%, #ddeeff 0%, var(--bg) 55%) fixed;
+  }
+  :root[data-theme="light"] header.hero{
+    background:linear-gradient(135deg, rgba(9,105,218,.08), rgba(130,80,223,.05));
+  }
+  :root[data-theme="light"] nav.toc{
+    background:linear-gradient(var(--bg),rgba(255,255,255,.7));
+  }
+  :root[data-theme="light"] .qa{background:#f6f8fa;color:#1f2328}
+  :root[data-theme="light"] .fcard .out{background:#f6f8fa}
+  :root[data-theme="light"] .flow .n.f{color:#bc4c00}
+  body{transition:background-color .2s ease,color .2s ease}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="controls" data-controls hidden><div class="controls-row"><button type="button" class="ctl-btn" data-expand-all>Expand all</button><button type="button" class="ctl-btn" data-collapse-all>Collapse all</button><label class="ctl-field"><span class="ctl-lbl">Wave</span><select class="ctl-sel" data-filter-wave><option value="">All waves</option></select></label><label class="ctl-field"><span class="ctl-lbl">Category</span><select class="ctl-sel" data-filter-cat><option value="">All categories</option></select></label><label class="ctl-field"><span class="ctl-lbl">Status</span><select class="ctl-sel" data-filter-status><option value="all">All</option><option value="done">Done</option><option value="pending">Pending</option></select></label><label class="ctl-field ctl-jump"><span class="ctl-lbl">Jump to</span><input type="text" class="ctl-inp" list="task-ids" data-jump placeholder="task id…" autocomplete="off"></label><datalist id="task-ids"></datalist><button type="button" class="ctl-btn ctl-toggle ctl-theme" data-theme-toggle aria-pressed="false"><span class="ctl-theme-ico" data-theme-ico aria-hidden="true">☾</span><span data-theme-lbl>Dark</span></button></div></div>
+<header class="hero">
+<div class="kicker">Prometheus · Work Plan · 18/19 tasks done</div>
+<h1>Widget Service: consolidate the CLI into the shared worker image (k8s queue/blob flow)</h1>
+<p class="subtitle"><code>widget-service</code> (renamed from legacy-worker) becomes the ONE repo that builds THREE images from ONE binary via the release tool and — via a <b>coordinated parallel release</b> — ships the CLI + worker images, the deploy chart, and the disk-cache snapshots <b>in LOCKSTEP off a SINGLE git tag</b> <code>vX.Y.Z</code>. &quot;Consolidation&quot; here means *coordinated parallel release*, <b>NOT a physical monorepo of the services</b>. The CLI subcommand + runtime-free CLI image are already SHIPPED (T1–T8). This back-half BUILDS the NET-NEW worker image here (<code>Dockerfile.worker</code>, consuming the shared runtime via <code>FROM acme/base-runtime:2024-stable</code>), the lockstep single-tag release machinery, the deploy chart move + publish workflow, dual-image×dual-region disk snapshots, and infra tests — so everything is READY TO RECEIVE the future scheduler-decoupling work. <b><code>acme/scheduler</code> stays UNTOUCHED by us; the shared runtime is NOT going away.</b></p>
+<div class="repos"><span class="repo">widget-service (was legacy-worker; builds all 3 images + chart + snapshots)</span><span class="repo">acme/scheduler (OUT OF SCOPE — untouched)</span><span class="repo">deploy-repo</span><span class="repo">infra-repo</span><span class="repo">legacy-widget-cli (archived)</span></div>
+<div class="metagrid"><div class="meta"><div class="l">Estimated Effort</div><div class="v">XL (back-half adds a 3rd image + release orchestration + chart move + infra tests)</div></div><div class="meta"><div class="l">Parallel Execution</div><div class="v">YES — waves (front-half T1–T8 shipped)</div></div><div class="meta"><div class="l">Critical Path</div><div class="v">[done T1→T2→T3→T4→T7→T8] → T-WIDGET-CORE (Dockerfile.worker, runtime via FROM) → T-RELEASE (release tool 3rd image + lockstep <code>-prod-</code> single-tag + T8b suffix rename) → T-DOCS (chart here + publish-chart.yaml) → T-INFRATEST (specs ×3 images) → T9 (dual disk matrix) → T12 (infra cli nodeclass) → T13/T14 (deploy) → F1–F4 → user okay</div></div><div class="meta"><div class="l">Progress</div><div class="v">18/19 tasks</div></div></div>
+</header>
+<nav class="toc"><a href="#crit">Critical Path</a><a href="#waves">Waves &amp; Tasks</a><a href="#guardrails">Objectives &amp; Guardrails</a><a href="#verify">Verification</a><a href="#decisions">Decisions</a><a href="#final">Final Review</a></nav>
+<section id="crit">
+<h2><span class="dot"></span>Critical Path</h2>
+<div class="card">
+<div class="flow"><span class="n ok">[done T1→T2→T3→T4→T7→T8]</span><span class="arr">→</span><span class="n">T-WIDGET-CORE (Dockerfile.worker, runtime via FROM)</span><span class="arr">→</span><span class="n">T-RELEASE (release tool 3rd image + lockstep <code>-prod-</code> single-tag + T8b suffix rename)</span><span class="arr">→</span><span class="n">T-DOCS (chart here + publish-chart.yaml)</span><span class="arr">→</span><span class="n">T-INFRATEST (specs ×3 images)</span><span class="arr">→</span><span class="n">T9 (dual disk matrix)</span><span class="arr">→</span><span class="n">T12 (infra cli nodeclass)</span><span class="arr">→</span><span class="n">T13/T14 (deploy)</span><span class="arr">→</span><span class="n">F1–F4</span><span class="arr">→</span><span class="n gate">user okay</span></div>
+<div class="legend"><span class="cat oracle">oracle</span><span class="cat unspecified-high">unspecified-high</span><span class="cat deep">deep</span></div>
+</div>
+</section>
+<section id="waves">
+<h2><span class="dot"></span>Execution Waves &amp; Tasks</h2>
+<div class="waves"><div class="wave w1 done"><div class="whead"><span>Wave 1–2</span><span class="cnt">7 done</span></div><div class="wbody"><details class="tcard shipped"><summary>
+<div class="trow"><span class="tid">✓ T1</span><span class="ttitle">Repo/module rename → widget-service</span></div>
+<div class="tmeta"><span class="badge deferred">deferred</span><span class="dep muted">abc1234</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Rename the GitHub repo <code>acme/legacy-worker</code> → <code>acme/widget-service</code>.
+- Edit <code>go.mod</code> module path → <code>github.com/acme/widget-service</code>. Update ALL internal imports (~36 lines) via search-replace of the module prefix. Update the 3 ldflags. Update CLI strings: <code>cmd/root.go</code> <code>Use:</code> and <code>cmd/version.go</code> binary name; refresh <code>AGENTS.md</code> examples.
+- <code>go build ./... &amp;&amp; go test ./...</code> must pass unchanged (pure rename).</div></div><div><div class="lbl">Must NOT do</div><div class="box">change any logic/behavior; rename the image or any downstream image/chart/infra reference; touch <code>internal/worker</code> logic.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>deep</code> (mechanical but wide; a missed import breaks build). Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">NO (foundation) · Wave 1 · Blocks: T2,T3,T4,T7 · Blocked By: None.</div></div><div><div class="lbl">References</div><div class="box">- Rename blast-radius report: go.mod line 1 + ~36 imports + ldflags + <code>cmd/root.go</code> Use + <code>cmd/version.go</code>. (WHY: exact edit set.)
+- &quot;repo rename ≠ image rename&quot; — worker image + downstream refs UNCHANGED. (WHY: guardrail.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>grep -RIn &quot;legacy-worker&quot; --include=*.go .</code> returns nothing (module path fully migrated).</li><li>☐ - [ ] <code>go build ./... &amp;&amp; go test ./...</code> green; <code>./widget-service version</code> prints new name.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: module rename complete + builds + tests green
+  Tool: Bash
+  Steps:
+    1. grep -RIn &quot;acme/legacy-worker&quot; . ; assert none
+    2. go build ./... &amp;&amp; go vet ./... &amp;&amp; go test ./... ; assert pass (worker tests included)
+    3. build with ldflags; ./bin version | assert &quot;widget-service&quot;
+  Expected Result: clean rename, all green
+  Failure Indicators: leftover old path; build/test failure
+  Evidence: .sisyphus/evidence/task-1-rename.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-1-rename.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>refactor: rename module legacy-worker → widget-service</code> · files: <code>go.mod,go.sum,**/*.go,cmd/*,AGENTS.md</code> · Pre-commit: <code>go build ./... &amp;&amp; go test ./...</code></div></div></div></details><details class="tcard shipped"><summary>
+<div class="trow"><span class="tid">✓ T2</span><span class="ttitle">Executor interface + run() dispatch (worker byte-identical)</span></div>
+<div class="tmeta"><span class="badge shipped">shipped</span><span class="dep muted">def5678</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Define a minimal interface (e.g. <code>internal/job/executor.go</code>): <code>type Executor interface { Execute(hooks worker.ExecuteHooks, stop chan struct{}) notifier.JobResult }</code> (reuse existing hooks/result types; if those live in <code>internal/worker</code>, consider moving the shared hooks/result types to a neutral package <code>internal/job</code> WITHOUT changing their behavior/fields — or keep them in worker and have cli import them; pick the lower-churn option and document).
+- Refactor <code>internal/queue/client.go</code>: make <code>runExecute</code>/<code>run()</code> operate on <code>Executor</code> + a <code>parseJob(body) (Executor, annotationsMeta, error)</code> seam, instead of being hard-typed to <code>worker.Job</code>. worker path: parser returns a <code>worker.Job</code> — behavior identical.
+- Keep annotation building working for both; source <code>model</code> from the executor.</div></div><div><div class="lbl">Must NOT do</div><div class="box">change worker&#39;s runtime behavior or JobResult/annotation output; broad rewrites — keep the seam surgical.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box">- <b>Category</b>: <code>ultrabrain</code> — the crux: decouple orchestration from <code>worker.Job</code> without altering worker behavior; type/ownership decisions ripple into T3/T4.
+- <b>Skills</b>: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">NO · Wave 1 · Blocks: T3,T4 · Blocked By: T1.</div></div><div><div class="lbl">References</div><div class="box">- <code>internal/queue/client.go</code> <code>run()</code> L145-204 + <code>runExecute</code> L29 (the seam). (WHY: exact indirection to generalize.)
+- <code>internal/worker/job.go Execute/GetCommand</code> + <code>ExecuteHooks</code>/<code>notifier.JobResult</code> types. (WHY: interface shape + where shared types live.)
+- AGENTS.md conventions (error wrapping). (WHY: match style.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] TDD: table tests with a fake Executor asserting <code>run()</code> calls Execute and preserves call order; worker-path test unchanged/green.</li><li>☐ - [ ] <code>go test ./internal/worker/... ./internal/queue/...</code> green; worker behavior identical.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: run() dispatches via Executor, worker regression green
+  Tool: Bash (go test)
+  Steps:
+    1. go test ./internal/queue/... -run TestRun -v  (fake Executor) → order asserted
+    2. go test ./internal/worker/... → all existing pass (no behavior change)
+  Expected Result: generic dispatch works; worker untouched
+  Failure Indicators: worker tests change/fail; order wrong
+  Evidence: .sisyphus/evidence/task-2-executor.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-2-executor.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>refactor(queue): dispatch job execution via Executor interface</code> · files: <code>internal/job/executor.go,internal/queue/client.go(,internal/worker/* minimal)</code> · Pre-commit: <code>go test ./...</code></div></div></div></details><details class="tcard shipped"><summary>
+<div class="trow"><span class="tid">✓ T5</span><span class="ttitle">Toolchain 2024 + cli-lib v2.0.1 dep + tooling doc</span></div>
+<div class="tmeta"><span class="badge shipped">shipped</span><span class="dep muted">1a2b3c4</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Confirm <code>go.mod</code> already toolchain 2024. Add <code>github.com/acme/cli-lib/v2 v2.0.0</code> dependency. <code>go mod tidy</code>.
+- Add <code>docs/cli-tooling.md</code>: cli image needs <code>npm</code>,<code>pnpm</code>,<code>yarn</code>,<code>node</code> on PATH; precedence npm&gt;pnpm&gt;yarn; env-setup errors are logged-not-returned.</div></div><div><div class="lbl">Must NOT do</div><div class="box">change execution logic (T3).</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>quick</code>. Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave 1 · Blocks: T3 · Blocked By: None (soft T1 for go.mod path).</div></div><div><div class="lbl">References</div><div class="box">cli-lib v2 README/API; widget-service <code>go.mod</code>. (WHY: dep + version.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>go list -m github.com/acme/cli-lib/v2</code> → v2.0.0; <code>go build ./...</code> green.</li><li>☐ - [ ] <code>docs/cli-tooling.md</code> present.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: v2 pinned + builds
+  Tool: Bash
+  Steps: 1. go list -m .../cli-lib → v2.0.0  2. go build ./... → exit 0
+  Evidence: .sisyphus/evidence/task-5-clilib.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-5-clilib.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>build: add cli-lib v2 + cli tooling doc</code> · files: <code>go.mod,go.sum,docs/cli-tooling.md</code> · Pre-commit: <code>go build ./...</code></div></div></div></details><details class="tcard shipped"><summary>
+<div class="trow"><span class="tid">✓ T3</span><span class="ttitle">internal/cli (Job/Execute/exec-resolution msg|XML) + base pkg</span></div>
+<div class="tmeta"><span class="badge shipped">shipped</span><span class="dep muted">PR #12</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Create <code>internal/cli/job.go</code> implementing the <code>Executor</code> interface (T2), mirroring <code>internal/worker/job.go</code> structure but cli-specific:
+  - <code>Job</code> struct: <code>JobID</code>, optional <code>Executable json:&quot;cliBinary,omitempty&quot;</code>, <code>BlobObjectURL</code>, <code>CallbackURL</code>, <code>SecretsRef</code>, <code>Tenant</code>.
+  - <b>Executable resolution</b> (<code>resolveExecutable(dir)</code>): if <code>Executable</code> set use it; else parse <code>*Settings.xml</code> <code>CliScriptName</code>. Locate via <code>Lib/{name}</code>→root fallback.
+  - <b>Execute</b>: script → <code>cli.SetupEnv(dir)</code> + <code>cli.GetRunCommand(dir, script)</code>; else <code>exec.Command(binary)</code>. Set <code>meta.runner=&quot;cli&quot;</code>, <code>meta.modelName=resolvedName</code>.
+- Port <code>xml.go</code> into <code>internal/cli</code>.</div></div><div><div class="lbl">Must NOT do</div><div class="box">touch <code>internal/worker</code>; re-implement env setup (use cli-lib v2); build a generic multi-language framework.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box">- <b>Category</b>: <code>ultrabrain</code> — faithfully map worker&#39;s Execute/stall/signal semantics onto cli&#39;s dual (script/binary) + XML-fallback model with zero parity drift.
+- <b>Skills</b>: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave 2 · Blocks: T4 · Blocked By: T2,T5,T6.</div></div><div><div class="lbl">References</div><div class="box">- <code>internal/worker/job.go</code> (Execute/GetCommand/stall/blob/annotate ordering). (WHY: mirror semantics.)
+- current legacy-widget-cli <code>cli/{job.go,binaryrunner.go,log.go,xml.go}</code>. (WHY: cli-specific exec + XML + noise stripping to port.)
+- cli-lib v2 <code>cli/{run,env}.go</code>. (WHY: env seam.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] TDD: resolveExecutable table (message-primary; XML fallback; Lib vs root; script vs binary), exit-code, cleanOutput stripping, meta.runner==&quot;cli&quot; → PASS.</li><li>☐ - [ ] script job runs via env; binary job via exec; stall TERM→KILL on no-output stub.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: npm script via XML fallback (no message binary)
+  Tool: interactive_bash (npm present or run in T7 image)
+  Steps: job with NO cliBinary + Settings.xml CliScriptName=script → resolve from XML → env run → output, exit 0
+  Evidence: .sisyphus/evidence/task-3-xml-npm.txt
+
+Scenario: message cliBinary overrides XML + bundled binary path + stall
+  Tool: interactive_bash
+  Steps: 1. cliBinary set → used over XML  2. binary exec exit propagated  3. no-output stub → SIGTERM→grace→SIGKILL, stalled
+  Evidence: .sisyphus/evidence/task-3-override-stall.txt
+
+Scenario: cleanOutput strips noise + meta.runner=cli (unit)
+  Tool: Bash (go test)
+  Evidence: .sisyphus/evidence/task-3-clean-meta.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-3-xml-npm.txt [ ] task-3-override-stall.txt [ ] task-3-clean-meta.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>feat(cli): cli execution seam (script/npm + binary, XML fallback)</code> · files: <code>internal/cli/*</code> · Pre-commit: <code>go test ./internal/cli/...</code></div></div></div></details><details class="tcard shipped"><summary>
+<div class="trow"><span class="tid">✓ T4</span><span class="ttitle">cmd/cli.go + runner-label parametrization</span></div>
+<div class="tmeta"><span class="badge shipped">shipped</span><span class="dep muted">PR #13</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- <code>cmd/cli.go</code> mirroring <code>cmd/worker.go</code>: <code>cli</code> command whose RunE invokes the shared <code>queue.Run</code> orchestration configured with the cli parser (builds <code>cli.Job</code> as the <code>Executor</code>). Register in <code>cmd/root.go init()</code>.
+- Ensure <code>run()</code> (T2) uses the cli parser when in cli mode. Verify <code>meta.runner=&quot;cli&quot;</code> end-to-end and annotations <code>model</code> populated from resolved cli name.</div></div><div><div class="lbl">Must NOT do</div><div class="box">alter worker subcommand; duplicate orchestration.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>deep</code>. Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave 2 · Blocks: T8,T10,T15 · Blocked By: T2,T3.</div></div><div><div class="lbl">References</div><div class="box"><code>cmd/{root,worker,sidecar}.go</code> (subcommand pattern); T2 Executor/parse seam. (WHY: wire without touching worker.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>./widget-service --help</code> lists <code>cli</code>; <code>cli</code> fails fast without <code>QUEUE_URL</code>.</li><li>☐ - [ ] TDD: cli-mode orchestration test (fakes) → annotate→download→started→execute(cli)→completed(meta.runner=cli)→delete order.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: cli one-shot e2e via local-stack (happy)
+  Tool: interactive_bash (local-stack + seeded npm job in blob + queue msg; run binary in T7 image)
+  Steps: run cli mode → blob outputs present, callback status=completed meta.runner=cli, msg deleted, exit 0
+  Evidence: .sisyphus/evidence/task-4-e2e.txt
+
+Scenario: lists cli + fails fast no queue (negative)
+  Tool: interactive_bash
+  Steps: --help contains cli ; unset QUEUE_URL → non-zero + fatal log
+  Evidence: .sisyphus/evidence/task-4-help-noqueue.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-4-e2e.txt [ ] task-4-help-noqueue.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>feat(cmd): add cli subcommand reusing shared orchestration</code> · files: <code>cmd/cli.go,cmd/root.go</code> · Pre-commit: <code>go test ./...</code></div></div></div></details><details class="tcard shipped"><summary>
+<div class="trow"><span class="tid">✓ T7</span><span class="ttitle">Dockerfile.cli (node:22-slim + npm/pnpm/yarn + CLI tool, NO runtime)</span></div>
+<div class="tmeta"><span class="badge verified">verified</span><span class="dep muted">PR #14</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- New <code>Dockerfile.cli</code> with <code># syntax=docker/dockerfile:1</code>. Builder stage <code>FROM golang:2024...</code> builds the binary (CGO off). <b>CLI-tool stage</b> copied verbatim from scheduler repo PR #12 (<code>FROM debian:slim as clitool</code>, install gh, <code>gh release download ${TOOL_VERSION} --repo acme/cli-tool</code>, <code>--mount=type=secret,id=registry_token,required=true</code>). Final <code>FROM node:22-slim</code>: install npm + pnpm + yarn, worker uid 999 + writable cache, <code>COPY --from=builder</code> binary → <code>/usr/local/bin/widget-service</code>, <code>COPY --from=clitool /usr/local/bin/clitool /usr/local/bin/clitool</code>, ENTRYPOINT binary. <b>NO runtime stage, NO <code>COPY --from=runtime</code>, NO <code>/opt/runtime</code>, NO EXPOSE 4000.</b>
+- <code>.dockerignore</code> as needed. Build locally with <code>docker buildx build -f Dockerfile.cli --secret id=registry_token,env=REGISTRY_TOKEN</code>.</div></div><div><div class="lbl">Must NOT do</div><div class="box">reference the runtime stage; touch the worker <code>Dockerfile</code>.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>unspecified-high</code> (Docker + build secret). Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave 2 · Blocks: T8,T9 · Blocked By: T1 (+T5 tooling).</div></div><div><div class="lbl">References</div><div class="box">- scheduler repo PR #12 diff (clitool stage + COPY + syntax directive + build secret). (WHY: exact clitool pattern.)
+- current legacy-widget-cli <code>Dockerfile</code> (worker uid 999, cache perms). (WHY: cli-base structure.)
+- Runtime-free guardrail + <code>node:22-slim</code>. (WHY: constraints.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>docker buildx build -f Dockerfile.cli --secret id=registry_token,env=REGISTRY_TOKEN -t cli:qa .</code> succeeds.</li><li>☐ - [ ] In image: <code>clitool --version</code> exit 0; <code>npm/pnpm/yarn/node</code> present; node 22; <b><code>/opt/runtime</code> ABSENT</b>; no <code>4000</code> EXPOSE.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: cli image has CLI tool + tools, NO runtime
+  Tool: Bash (buildx + docker run + history)
+  Steps:
+    1. buildx build -f Dockerfile.cli --secret id=registry_token,env=REGISTRY_TOKEN -t cli:qa .
+    2. docker run --rm cli:qa sh -c &#39;clitool --version; npm --version; pnpm --version; yarn --version; node --version; test ! -e /opt/runtime &amp;&amp; echo NO_RUNTIME&#39;
+    3. assert clitool exit0, tools present, node22, &quot;NO_RUNTIME&quot;
+    4. docker history cli:qa | assert no runtime layer
+  Expected Result: CLI tool present, runtime absent, tools present
+  Failure Indicators: /opt/runtime exists; clitool missing; tool missing
+  Evidence: .sisyphus/evidence/task-7-cliimage.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-7-cliimage.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>build: Dockerfile.cli (CLI tool, npm/pnpm/yarn, no runtime)</code> · files: <code>Dockerfile.cli,.dockerignore</code> · Pre-commit: <code>docker buildx build -f Dockerfile.cli --secret id=registry_token,env=REGISTRY_TOKEN -t cli:qa .</code></div></div></div></details><details class="tcard shipped"><summary>
+<div class="trow"><span class="tid">✓ T8</span><span class="ttitle">release tool 2nd (cli) image + registry_token build secret</span></div>
+<div class="tmeta"><span class="badge verified">verified</span><span class="dep muted">PR #15</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Add a second entry to <code>.releasetool.yml</code> <code>images:</code> using <code>dockerfile: Dockerfile.cli</code>, <code>image_templates</code> → <code>registry.acme.example/acme/cli-runner:{{ .Tag }}-legacy-node22</code> (+ <code>:latest</code>), same build labels. Keep the existing worker image entry unchanged.
+- Ensure the release build passes the <b>build secret <code>registry_token</code></b> to BOTH images (worker also needs the CLI tool). Update <code>.github/workflows/release.yml</code> accordingly (BUILDKIT=1, secret wiring).</div></div><div><div class="lbl">Must NOT do</div><div class="box">change the worker image name/tags; leak the token into logs/layers.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>deep</code> (release tool + build secrets). Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave 3 · Blocks: T14,F3 · Blocked By: T4,T7.</div></div><div><div class="lbl">References</div><div class="box">widget-service <code>.releasetool.yml</code> + <code>release.yml</code>; scheduler repo <code>push_to_registry.yml</code>. (WHY: dual-image + secret pattern.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>releasetool check</code> valid; <code>releasetool release --snapshot --clean --skip=publish</code> builds BOTH images; cli tagged <code>*-legacy-node22</code>.</li><li>☐ - [ ] worker image name/tags unchanged in config diff.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: two images from one binary; cli tag + secret wired
+  Tool: Bash
+  Steps:
+    1. releasetool check
+    2. REGISTRY_TOKEN=... BUILDKIT=1 releasetool release --snapshot --clean --skip=publish
+    3. docker images | assert worker AND acme/cli-runner:*-legacy-node22
+    4. git diff .releasetool.yml | assert worker entry unchanged
+  Expected Result: both images build; worker config untouched
+  Failure Indicators: secret failure; worker tags changed; missing cli tag
+  Evidence: .sisyphus/evidence/task-8-releasetool2.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-8-releasetool2.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>build: add cli image target + registry_token build secret in release</code> · files: <code>.releasetool.yml,.github/workflows/release.yml</code> · Pre-commit: <code>releasetool check</code>
+
+  &lt;!-- REFRAME NOTE (T8b, pending — handled inside T-RELEASE): T8 shipped the cli image tag as <code>{{.Tag}}-legacy-node22</code>. The reframe renames this repo&#39;s image suffix <code>-legacy-</code> → <code>-prod-</code>, i.e. <code>{{.Tag}}-prod-node22</code>. T8 stays [x] (shipped via PR #12 stack) and must NOT be un-checked; the suffix rename is a follow-up folded into T-RELEASE. The scheduler&#39;s <code>-legacy-2024</code> VERSION scheme is a DIFFERENT repo (acme/scheduler, OUT OF SCOPE) and is left as-is. --&gt;</div></div></div></details></div></div><div class="wave w2"><div class="whead"><span>Wave A</span><span class="cnt">3 tasks</span></div><div class="wbody"><div class="tcard">
+<div class="trow"><span class="tid">T-WIDGET-CORE</span><span class="ttitle">Dockerfile.worker HERE (base binary + FROM acme/base-runtime COPY /opt/runtime + CLI tool + LD_LIBRARY_PATH)  [unspecified-high]</span></div>
+<div class="tmeta"><span class="badge verified">verified</span><span class="dep muted">9c0d1e2</span></div>
+</div><div class="tcard">
+<div class="trow"><span class="tid">T-RELEASE</span><span class="ttitle">release tool 3rd image entry + lockstep single-tag <code>-prod-</code> suffixes (cli+worker) + registry_token for BOTH; folds T8b cli-tag rename [deep]</span></div>
+<div class="tmeta"><span class="badge deferred">deferred</span><span class="dep muted">0d1e2f3</span></div>
+</div><details class="tcard inprogress"><summary>
+<div class="trow"><span class="tid">T6</span><span class="ttitle">local-stack + kind QA harness + cli fixtures (worker e2e structural-only)  [unspecified-high]</span></div>
+<div class="tmeta"><span class="badge shipped">shipped</span><span class="dep muted">5d6e7f8</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- <code>hack/qa/</code>: <code>localstack-up.sh</code>, <code>seed.sh</code> (queue, blob store <code>cli-storage-test</code>, secret <code>acme/api-credentials</code> = <code>{PLATFORM_HOSTNAME,EXECUTOR_HASH}</code>, upload sample job dir to <code>jobs/{id}/</code>), <code>kind-up.sh</code>, <code>teardown.sh</code>.
+- Test-only cloud endpoint wiring honoring <code>ENDPOINT_URL</code> for local-stack.
+- Fixtures under <code>testdata/</code>: an npm job (package.json+script + a <code>*Settings.xml</code> with <code>CliScriptName</code>) AND a bundled-style binary stub.</div></div><div><div class="lbl">Must NOT do</div><div class="box">modify runner packages.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>unspecified-high</code>. Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave 1 · Blocks: T3,T4 QA, F3 · Blocked By: None.</div></div><div><div class="lbl">References</div><div class="box">local-stack README; cli-lib v2 testdata layout; current legacy-widget-cli <code>testdata/jobs/*</code>. (WHY: valid fixtures incl XML-fallback case.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] local-stack health OK; <code>seed.sh</code> lists queue+store+secret; <code>kind-up.sh</code> node Ready.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: harness bring-up + seed
+  Tool: Bash
+  Steps: localstack-up → curl health; seed → list asserts; kind-up → kubectl get nodes Ready
+  Evidence: .sisyphus/evidence/task-6-harness.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-6-harness.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>test: local-stack+kind harness + cli/bundled fixtures</code> · files: <code>hack/qa/*,testdata/*</code> · Pre-commit: <code>bash -n hack/qa/*.sh</code></div></div></div></details></div></div><div class="wave w3"><div class="whead"><span>Wave B</span><span class="cnt">4 tasks</span></div><div class="wbody"><details class="tcard"><summary>
+<div class="trow"><span class="tid">T-DOCS</span><span class="ttitle">charts/widget-service/ moved HERE + publish-chart.yaml (registry OCI, REGISTRY_TOKEN) + note deploy one-line re-point + note scheduler-repo stop-publishing  [deep]</span></div>
+<div class="tmeta"><span class="badge deferred">deferred</span><span class="dep muted">1e2f3a4</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Add <code>charts/widget-service/</code> to THIS repo (the language-agnostic chart currently in the scheduler repo: <code>Chart.yaml</code>, <code>values.yaml</code>, <code>values-worker.yaml</code>, <code>values-cli.yaml</code>, <code>templates/*</code>). It is already &quot;worker or CLI&quot; generic (draft line 70) — copy faithfully; only the image tags shift to <code>-prod-</code> and to <code>acme/worker</code> / <code>acme/cli-runner</code>.
+- Add <code>.github/workflows/publish-chart.yaml</code> mirroring the scheduler repo&#39;s (draft line 68): Helm 3.14.x, login <code>registry.acme.example</code> with <code>REGISTRY_TOKEN</code>, <code>helm package charts/widget-service</code> + <code>helm push .tgz oci://registry.acme.example/acme</code>. Chart version derives from the lockstep tag&#39;s <code>X.Y.Z</code>.
+- <b>Note (do NOT edit those repos here)</b>: the deploy chart-dependency <code>repository:</code> becomes a ONE-LINE re-point to THIS repo&#39;s registry namespace (applied in T14). The scheduler repo must STOP double-publishing the chart (D-DOCS-PUBLISH) — cross-repo follow-up, not done here.</div></div><div><div class="lbl">Must NOT do</div><div class="box">alter worker RUNTIME chart behavior (worker render byte-identical); edit the scheduler repo; double-publish; hardcode secrets.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>deep</code> (Helm packaging + registry OCI publish). Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave B · Blocks: T10, T11, T14 · Blocked By: T-RELEASE (image tags the chart references) — soft.</div></div><div><div class="lbl">References</div><div class="box">draft lines 52–54, 64, 68, 70, 74 (chart is the cleanest thing to move; publish-chart.yaml; language-agnostic; registry OCI <code>oci://registry.acme.example/acme</code>; <code>REGISTRY_TOKEN</code>). (WHY: chart-move mechanics + publish target.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>helm lint charts/widget-service</code> + <code>helm template</code> (both values files) render; worker render byte-identical to the pre-move chart.</li><li>☐ - [ ] <code>publish-chart.yaml</code> present + <code>actionlint</code>-clean; pushes to <code>oci://registry.acme.example/acme</code> with chart version = tag <code>X.Y.Z</code>.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: chart lives + publishes here; worker render unchanged
+  Tool: Bash (helm + actionlint)
+  Steps: helm lint; helm template -f values-worker.yaml (diff vs source chart → empty); helm template -f values-cli.yaml (image -prod-); actionlint publish-chart.yaml; grep REGISTRY_TOKEN + oci push
+  Evidence: .sisyphus/evidence/task-docs.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-docs.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>feat(chart): host widget-service chart + publish-chart workflow</code> · files: <code>charts/widget-service/*,.github/workflows/publish-chart.yaml</code> · Pre-commit: <code>helm lint &amp;&amp; actionlint</code>
+
+&lt;!-- MERGE NOTE 2026-08-10: T1-T8 + T-WIDGET-CORE + T-RELEASE(+T8b) + T-DOCS all MERGED to master via squash PR #12 (commit f8b241a). Stack folded in + closed. publish-chart.yaml uses REGISTRY_TOKEN→oci://registry.acme.example/acme, idempotent registry-check gate, Chart.yaml seeded 0.0.1-alpha. master green. --&gt;</div></div></div></details><details class="tcard"><summary>
+<div class="trow"><span class="tid">T-INFRATEST</span><span class="ttitle">tests/ harness + specs for all 3 images + ci_infra_tests.yml  [unspecified-high]</span></div>
+<div class="tmeta"><span class="badge deferred">deferred</span><span class="dep muted">2f3a4b5</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Add <code>tests/</code> harness matching the worker&#39;s precedent (draft line 66): <code>Gemfile</code>, <code>.rspec</code>, <code>Rakefile</code> (auto-discovers <code>spec/&lt;target&gt;/</code>), <code>spec/spec_helper.rb</code> (<code>get_docker_image(tag, build_mode, path, dockerfile)</code>, entrypoint overridden to <code>sleep infinity</code>).
+- Specs for ALL 3 images:
+  - <code>spec/cli/dockerfile_spec.rb</code>: CLI tool present + <code>clitool --version</code> exit 0; npm/pnpm/yarn/node present; node 22; <b><code>/opt/runtime</code> ABSENT</b>.
+  - <code>spec/worker/dockerfile_spec.rb</code>: <b>runtime <code>/opt/runtime/libcore.so</code> present</b>; CLI tool present; runtime apt libs (<code>libglu1-mesa</code>/<code>libxrandr2</code>/<code>libxt6t64</code>); locale.
+  - <code>spec/base/dockerfile_spec.rb</code>: the binary present (minimal).
+- Add <code>.github/workflows/ci_infra_tests.yml</code> mirroring the scheduler repo&#39;s: PR trigger (skip if title <code>[no e2e]</code>), local registry <code>:5000</code>, <code>buildx build</code> each Dockerfile → <code>localhost:5000/&lt;img&gt;:rspec</code>, <code>BUILD_MODE=pull bundle exec rspec spec</code>. The worker spec needs <code>acme/base-runtime</code> pulled + <code>registry_token</code> for the CLI tool.</div></div><div><div class="lbl">Must NOT do</div><div class="box">assert on <code>acme/scheduler</code> (OUT OF SCOPE); require runtime in the cli spec; add e2e that needs a license beyond image-structure.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>unspecified-high</code> (harness + buildx-in-CI + local registry). Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave B · Blocks: F1, F3 · Blocked By: T-WIDGET-CORE + T7 (needs all 3 Dockerfiles).</div></div><div><div class="lbl">References</div><div class="box">draft line 66 (worker specs: Gemfile/.rspec/Rakefile/spec_helper <code>get_docker_image</code>/dockerfile_spec assertions incl <code>/opt/runtime/libcore.so</code> + <code>clitool --version</code>; ci_infra_tests.yml local-registry buildx flow). (WHY: convention + per-image assertions to mirror.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>bundle exec rspec spec</code> (BUILD_MODE=pull) green for cli(no runtime)/worker(runtime present)/base(binary).</li><li>☐ - [ ] <code>ci_infra_tests.yml</code> <code>actionlint</code>-clean; builds all 3 images; skips on <code>[no e2e]</code>.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: specs assert runtime-in-worker, no-runtime-in-cli, binary-in-base
+  Tool: Bash (buildx + rspec + actionlint)
+  Steps: build 3 images to local registry; rspec spec → cli asserts !/opt/runtime, worker asserts /opt/runtime/libcore.so + clitool, base asserts binary; actionlint ci_infra_tests.yml
+  Evidence: .sisyphus/evidence/task-infratest.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-infratest.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>test(infra): specs for cli/worker/base images + ci_infra_tests</code> · files: <code>tests/*,.github/workflows/ci_infra_tests.yml</code> · Pre-commit: <code>actionlint &amp;&amp; (cd tests &amp;&amp; bundle exec rubocop || true)</code></div></div></div></details><details class="tcard"><summary>
+<div class="trow"><span class="tid">T9</span><span class="ttitle">dual disk matrix {worker,cli}×{us,eu}=4 snapshots HERE; writes back BOTH infra vars  [unspecified-high]</span></div>
+<div class="tmeta"><span class="badge shipped">shipped</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Add <code>.github/workflows/build-disk-snapshot.yml</code> HERE, generalizing the scheduler repo&#39;s regional snapshot workflow to a <b>MATRIX over {worker, cli} × {us-east-1, eu-west-1} = 4 regional snapshots</b>. Trigger on <code>workflow_run</code> of the release + manual dispatch. Per cell: run the builder w/ a scratch disk, pull THAT image into the runtime, create-snapshot, cleanup old unreferenced snapshot.
+- <b>Write-back</b>: open a PR into infra-repo updating BOTH <code>worker_image_cache_snapshot_id</code> AND <code>cli_image_cache_snapshot_id</code>. Snapshots are REGIONAL — 4 distinct ids.
+- Relates to D-MULTI-REGION: EU snapshots pre-warm whatever image EU ends up serving.</div></div><div><div class="lbl">Must NOT do</div><div class="box">edit <code>acme/scheduler</code> (OUT OF SCOPE); snapshot only one image; run on every commit; touch the worker NodeClass semantics.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>unspecified-high</code>. Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave B · Blocks: none · Blocked By: T-WIDGET-CORE + T7 (both images), T12 (cli var — soft).</div></div><div><div class="lbl">References</div><div class="box">draft lines 33-42 (regional snapshot mechanism; snapshots regional; write-back = PR into infra-repo; generalize the 2-region fan-out to {worker,cli}×{us,eu}=4). (WHY: exact mechanism + matrix design.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>actionlint</code> clean; matrix = {worker,cli}×{us,eu}; write-back PR updates BOTH <code>worker_image_cache_snapshot_id</code> + <code>cli_image_cache_snapshot_id</code>; release-triggered.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: dual-image dual-region snapshot workflow valid + both write-backs
+  Tool: Bash
+  Steps: actionlint; assert matrix {worker,cli}×{us-east-1,eu-west-1}; grep write-backs for BOTH worker_image_cache_snapshot_id + cli_image_cache_snapshot_id; release trigger
+  Evidence: .sisyphus/evidence/task-9-disk.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-9-disk.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — <code>ci: dual-image dual-region disk snapshot matrix + infra write-back</code> · files: <code>.github/workflows/build-disk-snapshot.yml</code> · Pre-commit: <code>actionlint</code></div></div></div></details><details class="tcard"><summary>
+<div class="trow"><span class="tid">T12</span><span class="ttitle">infra-repo cli NodeClass + cli_image_cache_snapshot_id (worker untouched)  [deep, skill: terraform-skill]</span></div>
+<div class="tmeta"><span class="badge deferred">deferred</span><span class="dep muted">3a4b5c6</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Mirror the worker NodeClass + image-cache (draft lines 34-35, 41): add a <code>cli</code> NodeClass and a <code>cli_image_cache_snapshot_id</code> variable (per <code>modules/cluster</code>, <code>count = snapshot_id != &quot;&quot; ? 1 : 0</code>) that, when set, creates the <code>cli</code> nodeclass attaching the pre-warmed snapshot at <code>/dev/xvdb</code>; SET the var per-cluster in <code>cluster-us-jobs.tf</code> + <code>cluster-eu-jobs.tf</code> (regional, distinct ids); default empty (skip) until T9&#39;s dual matrix produces snapshots. worker NodeClass + <code>worker_image_cache_snapshot_id</code> unchanged.</div></div><div><div class="lbl">Must NOT do</div><div class="box">change worker nodeclass/var; provision queue/identity (exist); edit <code>acme/scheduler</code>.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>deep</code>. Skills: [<code>terraform-skill</code>] — TF module/variable authoring + review (direct overlap).</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave B · Blocks: T13,T9 · Blocked By: None.</div></div><div><div class="lbl">References</div><div class="box">infra-repo <code>modules/cluster/{karpenter.tf,variables.tf,README.md}</code> (worker nodeclass L115-223 + <code>worker_image_cache_snapshot_id</code> L174-191, set in <code>cluster-{us,eu}-jobs.tf</code>); T9 dual-image snapshot workflow (writes BOTH vars back). (WHY: mirror the conditional worker nodeclass; cli gap per draft line 41.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>terraform validate</code>; plan shows <code>cli</code> nodeclass created iff <code>cli_image_cache_snapshot_id</code> set; worker unchanged.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: conditional cli nodeclass, no worker drift
+  Tool: Bash (terraform)
+  Steps: validate; plan with var=&quot;&quot; (no nodeclass, worker unchanged); plan with var=&quot;snap-x&quot; (creates cli nodeclass, worker unchanged)
+  Evidence: .sisyphus/evidence/task-12-nodeclass.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-12-nodeclass.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES (infra-repo branch) — <code>feat(karpenter): cli NodeClass + image-cache var</code> · files: <code>modules/cluster/{karpenter.tf,variables.tf,README.md},cluster-*-jobs.tf</code> · Pre-commit: <code>terraform validate</code></div></div></div></details></div></div><div class="wave w4"><div class="whead"><span>Wave C</span><span class="cnt">5 tasks</span></div><div class="wbody"><details class="tcard"><summary>
+<div class="trow"><span class="tid">T10</span><span class="ttitle">[CROSS-REPO chart] values-cli.yaml (all tiers) — in the chart&#39;s NEW home (here)              [deep]</span></div>
+<div class="tmeta"><span class="badge merged">merged</span><span class="dep muted">PR #14</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Complete <code>charts/widget-service/values-cli.yaml</code> <b>in the chart&#39;s NEW home HERE</b> (moved by T-DOCS; NO LONGER the scheduler repo): enable all tiers s/m/l/xl/xxl with correct <code>cli-jobs-{tier}</code> queue URLs (verify names vs infra-repo), per-tier resources (mirror values-worker unless cli differs), image <code>acme/cli-runner:{ver}-prod-node22</code> (<b>note <code>-prod-</code>, per T8b/T-RELEASE</b>), <code>nodePool: cli-jobs</code>, <code>sidecar.enabled: true</code> (base minimal base-runtime image + <code>CONTAINER_NAME=cli-runner</code>), <code>keda.secretName</code> per T11 (reuse worker secret).
+- <code>helm lint</code> + <code>helm template -f values-cli.yaml</code> render valid ScaledJobs + sidecar + external-secret/trigger-auth.</div></div><div><div class="lbl">Must NOT do</div><div class="box">modify values-worker.yaml or worker template behavior; invent queue URLs; edit the scheduler repo (chart lives here now).</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>deep</code>. Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave C · Blocks: T11,T14,F1 · Blocked By: T-DOCS (chart home), T-RELEASE (image tag/suffix).</div></div><div><div class="lbl">References</div><div class="box">scheduler repo source <code>values-cli.yaml</code>+<code>values-worker.yaml</code> — copied here by T-DOCS; infra-repo real URLs; T-RELEASE <code>-prod-</code> image tag; sidecar CONTAINER_NAME. (WHY: complete to worker parity in the new home.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>helm lint</code> + <code>helm template -f values-cli.yaml</code> → ScaledJob per tier + sidecar (CONTAINER_NAME=cli-runner) + correct SA/nodePool/queues/image tag <code>*-prod-node22</code>.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: cli values render all tiers + sidecar
+  Tool: Bash (helm)
+  Steps: helm lint; helm template -f values-cli.yaml | assert ScaledJob per tier, queues cli-jobs-*, sidecar CONTAINER_NAME=cli-runner, SA cli-runner-sa, nodePool cli-jobs, image *-prod-node22
+  Evidence: .sisyphus/evidence/task-10-values.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-10-values.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES (widget-service branch — chart home) — <code>feat(chart): complete values-cli.yaml (all tiers)</code> · files: <code>charts/widget-service/values-cli.yaml</code> · Pre-commit: <code>helm lint &amp;&amp; helm template</code></div></div></div></details><details class="tcard"><summary>
+<div class="trow"><span class="tid">T11</span><span class="ttitle">[CROSS-REPO chart] keda.secretName param → reuse worker secret — chart&#39;s new home           [deep]</span></div>
+<div class="tmeta"><span class="badge verified">verified</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- <b>In the chart&#39;s NEW home HERE</b> (moved by T-DOCS): inspect how worker KEDA auth is templated (<code>TriggerAuthentication</code>/<code>ExternalSecret</code>, driven by <code>keda.secretName</code>? namespaced vs Cluster). Choose the mechanism so cli REUSES worker&#39;s shared store <code>WORKER_CLI_RUNNER</code> creds without a new credential. Set <code>values-cli.yaml keda.secretName</code> accordingly. worker render must be byte-identical.</div></div><div><div class="lbl">Must NOT do</div><div class="box">create a new store cred; change worker output; hardcode cli into shared templates; edit the scheduler repo (chart lives here now).</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>deep</code>. Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave C · Blocks: T14,F1 · Blocked By: T10 (same chart PR here).</div></div><div><div class="lbl">References</div><div class="box"><code>charts/widget-service/templates/{external-secret,trigger-authentication}.yaml</code>+base <code>values.yaml keda.secretName</code>; deploy ClusterSecretStore + store <code>WORKER_CLI_RUNNER</code>; values-worker <code>keda.secretName</code>. (WHY: reuse mechanism.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>helm template -f values-worker.yaml</code> byte-identical before/after.</li><li>☐ - [ ] <code>helm template -f values-cli.yaml</code> KEDA auth reuses worker creds (no new store cred). Mechanism documented.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: cli reuses worker KEDA creds; worker unchanged
+  Tool: Bash (helm)
+  Steps: diff worker render before/after → EMPTY; cli render references shared secret (not a new store-backed one)
+  Evidence: .sisyphus/evidence/task-11-keda.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-11-keda.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES (same PR as T10) — <code>feat(chart): keda.secretName param so cli reuses worker secret</code> · files: <code>charts/widget-service/templates/*, values-cli.yaml, Chart.yaml(bump)</code> · Pre-commit: <code>helm lint &amp;&amp; helm template (both)</code></div></div></div></details><details class="tcard"><summary>
+<div class="trow"><span class="tid">T13</span><span class="ttitle">deploy autoscaling/{us,eu}-jobs/cli-jobs.yaml NodePools (mirror worker)                      [deep]</span></div>
+<div class="tmeta"><span class="badge shipped">shipped</span><span class="dep muted">PR #2324</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Add <code>autoscaling/us-jobs/cli-jobs.yaml</code> + <code>autoscaling/eu-jobs/cli-jobs.yaml</code>, mirroring <code>worker-jobs.yaml</code> EXACTLY except: <code>name: cli-jobs</code>, label <code>nodepool: cli-jobs</code>, <code>nodeClassRef.name: cli</code> (T12), taint <code>acme.example/cli-jobs:NoSchedule</code>. Same requirements/limits/disruption/weight/expireAfter. Auto-deployed by existing <code>bootstrap/addons/autoscaling.yaml</code> (no AppSet change).</div></div><div><div class="lbl">Must NOT do</div><div class="box">modify worker-jobs files or the autoscaling ApplicationSet; use spot.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>deep</code>. Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave C · Blocks: F1 · Blocked By: T12 (NodeClass <code>cli</code>).</div></div><div><div class="lbl">References</div><div class="box">deploy <code>autoscaling/{us,eu}-jobs/worker-jobs.yaml</code>; <code>bootstrap/addons/autoscaling.yaml</code>; chart tolerations/nodeSelector. (WHY: mirror + scheduling match.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>kubectl --dry-run=client</code> valid; diff vs worker-jobs shows ONLY name/label/nodeClassRef/taint.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: cli NodePools valid + minimal diff
+  Tool: Bash (kubectl/yq)
+  Steps: dry-run apply us+eu; yq diff vs worker-jobs → only name/nodepool-label/nodeClassRef/taint differ
+  Evidence: .sisyphus/evidence/task-13-nodepool.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-13-nodepool.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES (deploy branch) — <code>feat(autoscaling): add cli-jobs NodePool (us+eu)</code> · files: <code>autoscaling/{us-jobs,eu-jobs}/cli-jobs.yaml</code> · Pre-commit: <code>kubectl --dry-run=client</code></div></div></div></details><details class="tcard"><summary>
+<div class="trow"><span class="tid">T14</span><span class="ttitle">deploy charts/cli-runner/* wrapper + AppSet; chart dep repository: → THIS repo&#39;s registry    [deep]</span></div>
+<div class="tmeta"><span class="badge shipped">shipped</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- Create <code>charts/cli-runner/{Chart.yaml (dep widget-service, same version as worker, alias cli),values.yaml,values-us-jobs.yaml,values-eu-jobs.yaml}</code> mirroring <code>charts/worker-runner/</code> — <b>chart dependency <code>repository:</code> RE-POINTED to <code>oci://registry.acme.example/acme</code></b>, cli image <code>acme/cli-runner:{ver}-prod-node22</code> (<b>note <code>-prod-</code></b>), region+registry per cluster (see D-MULTI-REGION — RESOLVED: mirroring; EU uses eu-west-1 refs), all <code>cli-jobs-{tier}</code> URLs, SA <code>cli-runner-sa</code>, nodePool cli-jobs, sidecar reuse (base minimal base-runtime image, CONTAINER_NAME=cli-runner), keda.secretName = worker&#39;s (T11).
+- Also RE-POINT the existing <code>charts/worker-runner/Chart.yaml</code> dependency <code>repository:</code> to <code>oci://registry.acme.example/acme</code> (same one-line move; worker wrapper otherwise unchanged) so both wrappers consume the chart from its new home.
+- Create <code>bootstrap/addons/cli-runner.yaml</code> ApplicationSet mirroring <code>worker-runner.yaml</code> (clusters us-jobs+eu-jobs, path charts/cli-runner/, valueFiles [values.yaml, values-{{.name}}.yaml], ns cli, CreateNamespace=true).</div></div><div><div class="lbl">Must NOT do</div><div class="box">modify worker wrapper values/AppSet behavior (only the chart-dependency <code>repository:</code> line may move); hardcode secrets; invent queue URLs; resolve D-MULTI-REGION unilaterally.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>deep</code>. Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave C · Blocks: F1,F3 · Blocked By: T-RELEASE(image tag/<code>-prod-</code>), T-DOCS(chart home/<code>repository:</code>), T10(values), T11(secret), T13(nodePool).</div></div><div><div class="lbl">References</div><div class="box">deploy <code>charts/worker-runner/*</code>+<code>bootstrap/addons/worker-runner.yaml</code>; draft lines 52,59 (deploy chart dep <code>repository: oci://registry.acme.example/...</code>, one-line re-point); chart values-cli.yaml (tier resources); infra <code>cli-jobs-*</code> URLs. (WHY: mirror pattern + chart-home re-point + real values.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] <code>helm dependency update &amp;&amp; helm lint charts/cli-runner</code>; <code>helm template</code> (us + eu) renders ScaledJobs per tier + sidecar (CONTAINER_NAME=cli-runner) + KEDA reuse; ns cli; SA cli-runner-sa; nodePool cli-jobs; correct region/queues/image tag <code>*-prod-node22</code>.</li><li>☐ - [ ] chart-dependency <code>repository:</code> (both cli + worker wrappers) points at THIS repo&#39;s registry namespace (chart-home move).</li><li>☐ - [ ] <code>bootstrap/addons/cli-runner.yaml</code> valid; diff vs worker-runner.yaml only name/path/ns/values.</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: deploy cli wrapper renders both clusters; chart dep re-pointed
+  Tool: Bash (helm + kubectl dry-run)
+  Steps: dep update; lint; template us (region us-east-1, queues, sidecar env, SA, nodePool, image *-prod-node22); template eu (eu-west-1); grep Chart.yaml repository: → this-repo registry; dry-run AppSet
+  Evidence: .sisyphus/evidence/task-14-deploy.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-14-deploy.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES (deploy branch) — <code>feat: cli-runner wrapper chart + AppSet (us+eu); re-point chart repository</code> · files: <code>charts/cli-runner/*,charts/worker-runner/Chart.yaml,bootstrap/addons/cli-runner.yaml</code> · Pre-commit: <code>helm lint &amp;&amp; helm template &amp;&amp; kubectl --dry-run</code>
+
+---</div></div></div></details><details class="tcard"><summary>
+<div class="trow"><span class="tid">T15</span><span class="ttitle">docs (3 images + lockstep release + infra tests + contract) + archive legacy-widget-cli      [writing]</span></div>
+</summary>
+<div class="tbody"><div><div class="lbl">What to do</div><div class="box">- In widget-service: update <code>README.md</code>/<code>AGENTS.md</code> to document the <code>cli</code> subcommand, the <b>THREE images</b> (base minimal <code>base-runtime</code> = binary/sidecar; <code>acme/cli-runner:*-prod-node22</code> = cli+CLI tool, <b>runtime-free</b>; NEW <code>acme/worker:*-prod-2024</code> = runtime-via-<code>FROM</code>+CLI tool), the <b>lockstep single-tag <code>-prod-</code> release</b>, the <b>chart now hosted here</b> (<code>publish-chart.yaml</code>, registry OCI), the <b>infra tests</b>, and the shared contract (<code>docs/contract.md</code>). State explicitly that <code>acme/scheduler</code> is OUT OF SCOPE and the runtime is consumed via <code>FROM</code>, not rebuilt.
+- In <code>acme/legacy-widget-cli</code> (THIS repo): add an archive/deprecation notice to <code>README.md</code> pointing to widget-service; then archive the GitHub repo. Note: this plan&#39;s <code>.sisyphus/</code> lives here; archiving is the final action after execution completes.</div></div><div><div class="lbl">Must NOT do</div><div class="box">delete history; break the worker docs; imply the scheduler is being edited or the runtime removed.</div></div><div><div class="lbl">Recommended Agent Profile</div><div class="box"><b>Category</b> <code>writing</code>. Skills: [].</div></div><div><div class="lbl">Parallelization</div><div class="box">YES · Wave C · Blocks: none · Blocked By: T-RELEASE, T-DOCS, T-INFRATEST.</div></div><div><div class="lbl">References</div><div class="box">widget-service AGENTS.md; scheduler repo README CLI-tool note; this repo README (legacy); REFRAME subsection (lockstep/3-image/scheduler-out-of-scope). (WHY: doc parity + retirement + reframe.)</div></div><div><div class="lbl">Acceptance Criteria</div><ul class="clean"><li>☐ - [ ] widget-service README documents cli mode + all 3 images (runtime-free cli + runtime-bearing worker + base) + lockstep <code>-prod-</code> release + chart-here + infra tests. <code>docs/contract.md</code> complete.</li><li>☐ - [ ] Docs state scheduler is out-of-scope and runtime is consumed via <code>FROM</code> (not rebuilt/removed).</li><li>☐ - [ ] legacy-widget-cli README has deprecation pointer; repo archived (final step).</li></ul></div><div><div class="lbl">QA Scenarios</div><pre class="qa">Scenario: docs complete + deprecation pointer
+  Tool: Bash
+  Steps: grep README for &quot;cli&quot; subcommand + &quot;no runtime&quot;/&quot;CLI tool&quot;; grep this-repo README for &quot;archived&quot;/widget-service
+  Evidence: .sisyphus/evidence/task-15-docs.txt</pre></div><div><div class="lbl">Evidence to Capture</div><div class="box">[ ] task-15-docs.txt</div></div><div><div class="lbl">Commit</div><div class="box">YES — widget-service: <code>docs: cli mode + dual-image + contract</code>; legacy-widget-cli: <code>docs: deprecate in favor of widget-service</code> · Pre-commit: none</div></div></div></details></div></div><div class="wave wf"><div class="whead"><span>Wave FINAL</span><span class="cnt">4 tasks</span></div><div class="wbody"><div class="tcard">
+<div class="trow"><span class="tid">F1</span><span class="ttitle">Plan compliance audit</span></div>
+</div><div class="tcard">
+<div class="trow"><span class="tid">F2</span><span class="ttitle">Code quality review</span></div>
+</div><div class="tcard">
+<div class="trow"><span class="tid">F3</span><span class="ttitle">Real manual QA — local-stack+kind + all 3 images</span></div>
+</div><div class="tcard">
+<div class="trow"><span class="tid">F4</span><span class="ttitle">Scope fidelity + parity + WORKER/SCHEDULER-UNTOUCHED across repos</span></div>
+</div></div></div></div>
+</section>
+<section id="guardrails">
+<h2><span class="dot"></span>Objectives &amp; Guardrails</h2>
+<div class="must">
+<div class="col have"><h4>Must Have</h4><ul class="clean"><li>One binary → <b>THREE images from ONE git tag</b>, released in LOCKSTEP (both runners + chart + snapshots bump together, versions aligned).</li><li>Runtime-free cli image WITH the CLI tool; NEW worker image WITH runtime (via <code>FROM acme/base-runtime</code>) + CLI tool; base minimal image unchanged.</li><li><code>worker</code> runtime behavior byte-identical; queue/blob/annotations/notifier/secrets/env parity; <code>meta.runner=&quot;cli&quot;</code>.</li><li><code>-prod-</code> tag suffix for this repo&#39;s cli+worker images; chart published from here; dual-region disk snapshots for both images.</li><li>Executable resolution supports both message field and Settings.xml.</li></ul></div>
+<div class="col not"><h4>Must NOT Have</h4><ul class="clean"><li><b>Do NOT modify the scheduler image (OUT OF SCOPE)</b> — no edits to the scheduler repo&#39;s <code>Dockerfile</code>, VERSION, push_to_registry.yml, or its EXPOSE-4000/cron wiring. The scheduler→cron-only decoupling is a separate, migration-gated task.</li><li><b>Do NOT rebuild the runtime</b> — the new <code>Dockerfile.worker</code> CONSUMES it via <code>FROM acme/base-runtime:2024-stable</code> + <code>COPY --from</code>; never build the runtime from source here.</li><li><b>Do NOT give the images independent versions</b> — lockstep single-tag <code>vX.Y.Z</code> drives all 3 image tags + chart + snapshots. No per-image cadence, no build-ID split introduced solely to decouple releases.</li><li><b>Do NOT alter worker RUNTIME behavior/output</b> anywhere: <code>internal/worker</code> behavior, the base minimal worker image, <code>values-worker.yaml</code>, deploy <code>worker-jobs.yaml</code>/<code>charts/worker-runner</code>, infra-repo <code>worker</code> NodeClass/<code>worker_image_cache_snapshot_id</code>, the <code>bump-worker</code> skill. Worker output must be byte-identical before/after.</li><li><b>Runtime-free applies to the CLI image ONLY</b> — <code>Dockerfile.cli</code> must never reference a runtime stage or <code>/opt/runtime</code>. The NEW <code>Dockerfile.worker</code> DELIBERATELY contains the runtime (that is its purpose).</li><li><b>Do NOT rename the base image / existing downstream image refs</b> — the base minimal <code>base-runtime:{{.Tag}}</code> name stays; only the NEW runnable images use the <code>acme/{cli,worker}-runner</code> names with the <code>-prod-</code> suffix.</li><li><b>Do NOT duplicate the shared core</b> — reuse <code>internal/{queue,storage,secrets,notifier,kubernetes,oomwatcher}</code>; execution code stays in <code>internal/{worker,cli}</code> + the shared <code>internal/job</code> base.</li><li><b>Do NOT over-abstract</b> — a minimal <code>Executor</code> interface; no plugin/registry framework.</li><li><b>Do NOT invent a new queue store credential</b> — reuse worker&#39;s.</li><li><b>Do NOT build bundler binaries here</b> (external). No new infra beyond the cli NodeClass (T12) + the cli snapshot var.</li><li><b>Do NOT add a new sidecar mode</b> — reuse the existing <code>sidecar</code>.</li></ul></div>
+</div>
+</section>
+<section id="verify">
+<h2><span class="dot"></span>Verification Strategy</h2>
+<div class="grid2"><div class="card"><h3 style="margin-top:0">Verification Strategy</h3><ul class="clean"><li>&gt; <b>ZERO HUMAN INTERVENTION</b> — all verification agent-executed. Evidence → <code>.sisyphus/evidence/</code>.</li></ul></div></div>
+</section>
+<section id="decisions">
+<h2><span class="dot"></span>Decisions</h2>
+<div class="decisions"><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">RESOLVED (reframe)</span><span class="badge resolved">RESOLVED (reframe)</span></div><p class="muted" style="margin:.5em 0 0">consolidation = COORDINATED PARALLEL RELEASE (lockstep single-tag), NOT a monorepo; rename→widget-service; archive this repo; runtime-free CLI image; NEW worker image built HERE (runtime CONSUMED via <code>FROM acme/base-runtime:2024-stable</code>, NOT rebuilt); CLI tool in both cli+worker images; <code>-prod-</code> tag suffix for this repo&#39;s images; chart moves HERE + published from here; dual-image×dual-region disk matrix; infra tests ×3; cli NodeClass+disk cache; queue secret reuse. <b>The shared runtime stays; <code>acme/scheduler</code> UNTOUCHED (scheduler→cron-only decoupling is a separate, migration-gated, out-of-scope task).</b></p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">Decisions Needed (external — non-blocking for code):</span><span class="badge open">Decisions Needed (external — non-blocking for code):</span></div><p class="muted" style="margin:.5em 0 0"></p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">D-MULTI-REGION (RESOLVED — multi-region mirroring)</span><span class="badge resolved">RESOLVED — multi-region mirroring</span></div><p class="muted" style="margin:.5em 0 0">user confirmed cross-region mirroring (us-east-1 → eu-west-1) is ALREADY set up and relied upon. Therefore this repo pushes images to <code>us-east-1</code> ONLY (as today) and EU consumes the mirrored copies from <code>eu-west-1</code> automatically. NO push matrix is added to the release workflow. T14 deploy <code>values-eu</code> keeps its <code>eu-west-1</code> registry references (they resolve via mirroring). The dual-region disk matrix still produces regional snapshots per region (snapshots are regional regardless of image mirroring).</p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">D-API-OWNER</span><span class="badge open"></span></div><p class="muted" style="margin:.5em 0 0">Confirm the platform side that enqueues cli jobs, uploads blob inputs to <code>jobs/{id}/</code>, and consumes callbacks exists (or is tracked). &quot;Support both&quot; means the runner works whether or not <code>cliBinary</code> is sent.</p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">D-TOOL-VERSION</span><span class="badge open"></span></div><p class="muted" style="margin:.5em 0 0">Pin <code>TOOL_VERSION</code> — PR #12 uses <code>v0.2.0</code> (T7 shipped <code>v0.2.0</code>); confirm the version BOTH the cli + new worker images should ship (they should match).</p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">D-TOKEN-SECRET</span><span class="badge open"></span></div><p class="muted" style="margin:.5em 0 0">Confirm the release/CI workflow in widget-service has (or gets) an <code>API_TOKEN</code>/<code>registry_token</code> secret with read access to private <code>acme/cli-tool</code> (needed for BOTH cli + worker image builds).</p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">D-DOCS-PUBLISH</span><span class="badge open"></span></div><p class="muted" style="margin:.5em 0 0">the scheduler repo must STOP double-publishing <code>charts/widget-service</code> once we publish it from HERE. Editing that repo&#39;s <code>publish-chart.yaml</code> is a cross-repo follow-up outside this plan&#39;s edit set — track it.</p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">D-EXPOSE-PORT</span><span class="badge open"></span></div><p class="muted" style="margin:.5em 0 0">Verify whether the NEW <code>Dockerfile.worker</code> runner needs <code>EXPOSE 4000</code> (scheduler has it for its HTTP trigger). Default: OMIT it (runner is queue-driven, not HTTP). Confirm no probe depends on it.</p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">D-VERSION-SCHEME</span><span class="badge open"></span></div><p class="muted" style="margin:.5em 0 0">The lockstep tag reconciles this repo&#39;s git-tag scheme with the chart&#39;s Chart.yaml semver. The scheduler&#39;s own <code>-legacy-2024</code> VERSION-file scheme is OUT OF SCOPE (untouched). Confirm the single-tag <code>vX.Y.Z</code> → <code>X.Y.Z</code> chart-version derivation.</p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">Defaults Applied (override anytime):</span><span class="badge default">Defaults Applied (override anytime):</span></div><p class="muted" style="margin:.5em 0 0"></p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">Image names/tags</span><span class="badge open"></span></div><p class="muted" style="margin:.5em 0 0"><code>acme/cli-runner:{{.Tag}}-prod-node22</code> and <code>acme/worker:{{.Tag}}-prod-2024</code> (NEW), off the single git tag; base minimal <code>base-runtime:{{.Tag}}</code> name unchanged. Chart version = the tag&#39;s <code>X.Y.Z</code>.</p></div><div class="dcard"><div style="display:flex;justify-content:space-between;align-items:center"><span class="name">T8b (cli tag rename)</span><span class="badge open">cli tag rename</span></div><p class="muted" style="margin:.5em 0 0">T8 shipped <code>-legacy-node22</code>; the reframe renames it to <code>-prod-node22</code>. Handled inside T-RELEASE (T8 stays <code>[x]</code> — do not un-check; the suffix change is a pending follow-up folded into T-RELEASE).</p></div></div>
+</section>
+<section id="final">
+<h2><span class="dot"></span>Final Verification Wave</h2>
+<div class="fwave"><div class="fcard"><div class="h"><b>F1 · Plan Compliance Audit</b><span class="badge shipped">done</span><span class="cat oracle">oracle</span></div><div class="muted">Verify each Must-Have exists (read files, run <code>go test</code>, <code>docker run</code> ×3 images, <code>releasetool check</code>, <code>helm template</code>, <code>terraform validate</code>, <code>actionlint</code>). For each Must-NOT: grep for violations (runtime in CLI image, runtime rebuilt-from-source, <code>acme/scheduler</code> edited, images given independent versions, worker runtime drift, base-image rename, core duplication, new sidecar mode) → reject with file:line. Confirm evidence files + reframe tasks (T-WIDGET-CORE/T-RELEASE/T-DOCS/T-INFRATEST/T8b) present.</div><div class="out">Must Have [N/N] | Must NOT [N/N] | Tasks [N/N] | VERDICT</div></div><div class="fcard"><div class="h"><b>F2 · Code Quality Review</b><span class="badge shipped">done</span><span class="cat unspecified-high">unspecified-high</span></div><div class="muted"><code>go build/vet ./...</code>, <code>golangci-lint</code>, <code>go test ./... -cover</code>. Review <code>internal/cli</code> + <code>Executor</code> seam + shared <code>internal/job</code> base for leaks (tickers/goroutines), error wrapping, AI slop. Review the 3 Dockerfiles + release tool + workflows (publish-chart, ci_infra_tests, build-disk-snapshot) for hadolint/actionlint cleanliness + no leaked <code>registry_token</code>. Confirm worker runtime packages behaviorally unchanged (git diff scope; wire byte-identical test).</div><div class="out">Build/Vet/Lint [..] | Tests [..] | cli-seam [clean/issues] | dockerfiles×3 [..] | worker-wire [identical?] | VERDICT</div></div><div class="fcard"><div class="h"><b>F3 · Real Manual QA (local-stack + kind + all 3 images + lockstep)</b><span class="badge shipped">done</span><span class="cat unspecified-high">unspecified-high</span></div><div class="muted">Full e2e for cli mode (npm script AND bundled binary): queue→blob download→exec→blob upload→callback(meta.runner=cli)→delete→annotations; simulate OOM → reused sidecar cleanup. Build ALL 3 images: <b>cli has CLI tool + tools + NO /opt/runtime; NEW worker HAS /opt/runtime (via FROM acme/base-runtime) + CLI tool; base has binary</b>. specs ×3 green. <code>releasetool release --snapshot</code> → 3 images from ONE tag with aligned <code>-prod-</code> suffixes. worker e2e best-effort/structural. Edge cases: lease expiry, stall TERM→KILL, missing secretsRef, XML-vs-message executable, tenant. Evidence → <code>.sisyphus/evidence/final-qa/</code>.</div><div class="out">Scenarios [N/N] | Images [cli:noRuntime+clitool, worker:runtime+clitool, base:binary] | Lockstep [tags aligned?] | Edge [N] | VERDICT</div></div><div class="fcard"><div class="h"><b>F4 · Scope Fidelity + Parity + Worker/Scheduler-Untouched</b><span class="badge shipped">done</span><span class="cat deep">deep</span></div><div class="muted">Spec vs diff per task (1:1, no creep). Parity vs pre-consolidation worker contract (queue/blob/annotations/notifier+meta.runner/secrets/env). Cross-repo minimal-diff: deploy cli-jobs vs worker-jobs, cli wrapper vs worker wrapper, chart-dependency <code>repository:</code> re-point, infra cli nodeclass, values-worker render. <b>Assert ZERO edits to <code>acme/scheduler</code> (out of scope) and ZERO worker RUNTIME drift across widget-service/deploy-repo/infra-repo.</b> Confirm runtime consumed via <code>FROM</code> (not rebuilt), base image name unchanged, <code>-prod-</code> suffix used, lockstep single-tag.
+
+---</div><div class="out">Tasks [N/N] | Parity [N/N] | Cross-repo minimal-diff [N/N] | Scheduler-untouched [CLEAN] | Worker-runtime-untouched [CLEAN/N] | Lockstep+-prod- [OK] | VERDICT</div></div></div>
+</section>
+<footer>
+<span>Source: test/fixtures/golden-plan.md · rendered by opencode-plan-canvas</span>
+<span>18/19 tasks done</span>
+</footer>
+</div>
+<script>
+(function () {
+  "use strict";
+  try {
+    if (typeof document === "undefined") return;
+    var ready = function (fn) {
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", fn, { once: true });
+      } else {
+        fn();
+      }
+    };
+    ready(function () {
+      try {
+        init();
+      } catch (e) {
+        try { console.warn("plan-canvas interactivity disabled:", e); } catch (_) {}
+      }
+    });
+
+    function init() {
+      var root = document.querySelector("[data-controls]");
+      var allCards = Array.prototype.slice.call(document.querySelectorAll(".tcard"));
+      var detailCards = Array.prototype.slice.call(document.querySelectorAll("details.tcard"));
+
+      if (root) root.hidden = false;
+
+      setupProgress(allCards);
+      if (!root) return;
+
+      setupExpandCollapse(root, detailCards);
+      setupWaveFilter(root);
+      setupCategoryFilter(root, allCards);
+      setupStatusFilter(root, allCards);
+      setupJump(root);
+      setupThemeToggle(root);
+    }
+
+    var THEME_KEY = "plan-canvas-theme";
+
+    function storedTheme() {
+      try {
+        var v = window.localStorage.getItem(THEME_KEY);
+        return v === "light" || v === "dark" ? v : null;
+      } catch (e) { return null; }
+    }
+
+    function persistTheme(theme) {
+      try { window.localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+    }
+
+    function prefersLight() {
+      try {
+        return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+      } catch (e) { return false; }
+    }
+
+    function applyTheme(theme, btn) {
+      var el = document.documentElement;
+      if (theme === "light") el.setAttribute("data-theme", "light");
+      else el.removeAttribute("data-theme");
+      if (!btn) return;
+      var isLight = theme === "light";
+      btn.setAttribute("aria-pressed", isLight ? "true" : "false");
+      var ico = btn.querySelector("[data-theme-ico]");
+      var lbl = btn.querySelector("[data-theme-lbl]");
+      if (ico) ico.textContent = isLight ? "\u2600" : "\u263e";
+      if (lbl) lbl.textContent = isLight ? "Light" : "Dark";
+    }
+
+    function setupThemeToggle(root) {
+      var btn = root.querySelector("[data-theme-toggle]");
+      if (!btn) return;
+      var initial = storedTheme();
+      if (!initial) initial = prefersLight() ? "light" : "dark";
+      applyTheme(initial, btn);
+      btn.addEventListener("click", function () {
+        var next = document.documentElement.getAttribute("data-theme") === "light" ? "dark" : "light";
+        applyTheme(next, btn);
+        persistTheme(next);
+      });
+    }
+
+    function isShipped(card) {
+      return card.classList.contains("shipped");
+    }
+
+    function setupProgress(allCards) {
+      var total = allCards.length;
+      var done = 0;
+      for (var i = 0; i < allCards.length; i++) {
+        if (isShipped(allCards[i])) done++;
+      }
+      var hero = document.querySelector("header.hero");
+      if (!hero) return;
+      var pct = total > 0 ? Math.round((done / total) * 100) : 0;
+      var bar = document.createElement("div");
+      bar.className = "progressbar";
+      bar.setAttribute("data-progress", "");
+      var fill = document.createElement("div");
+      fill.className = "progressbar-fill";
+      fill.style.width = pct + "%";
+      var label = document.createElement("div");
+      label.className = "progressbar-label";
+      label.textContent = done + "/" + total + " tasks done (" + pct + "%)";
+      bar.appendChild(fill);
+      bar.appendChild(label);
+      hero.appendChild(bar);
+    }
+
+    function setupExpandCollapse(root, detailCards) {
+      var expand = root.querySelector("[data-expand-all]");
+      var collapse = root.querySelector("[data-collapse-all]");
+      if (expand) {
+        expand.addEventListener("click", function () {
+          for (var i = 0; i < detailCards.length; i++) detailCards[i].open = true;
+        });
+      }
+      if (collapse) {
+        collapse.addEventListener("click", function () {
+          for (var i = 0; i < detailCards.length; i++) detailCards[i].open = false;
+        });
+      }
+    }
+
+    function waveColumns() {
+      return Array.prototype.slice.call(document.querySelectorAll(".waves > .wave"));
+    }
+
+    function waveName(col) {
+      var head = col.querySelector(".whead > span");
+      return head ? (head.textContent || "").trim() : "";
+    }
+
+    function setupWaveFilter(root) {
+      var sel = root.querySelector("[data-filter-wave]");
+      if (!sel) return;
+      var cols = waveColumns();
+      var seen = {};
+      for (var i = 0; i < cols.length; i++) {
+        var name = waveName(cols[i]);
+        if (!name || seen[name]) continue;
+        seen[name] = true;
+        var opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+      }
+      sel.addEventListener("change", function () {
+        var want = sel.value;
+        for (var j = 0; j < cols.length; j++) {
+          var match = want === "" || waveName(cols[j]) === want;
+          cols[j].classList.toggle("cv-hidden", !match);
+        }
+      });
+    }
+
+    function cardCategories(card) {
+      var out = [];
+      var badges = card.querySelectorAll(".cat");
+      for (var i = 0; i < badges.length; i++) {
+        var t = (badges[i].textContent || "").trim();
+        if (t) out.push(t);
+      }
+      return out;
+    }
+
+    function setupCategoryFilter(root, allCards) {
+      var sel = root.querySelector("[data-filter-cat]");
+      if (!sel) return;
+      var seen = {};
+      var ordered = [];
+      for (var i = 0; i < allCards.length; i++) {
+        var cats = cardCategories(allCards[i]);
+        for (var j = 0; j < cats.length; j++) {
+          if (!seen[cats[j]]) {
+            seen[cats[j]] = true;
+            ordered.push(cats[j]);
+          }
+        }
+      }
+      if (ordered.length === 0) {
+        var field = sel.closest(".ctl-field");
+        if (field) field.hidden = true;
+        return;
+      }
+      for (var k = 0; k < ordered.length; k++) {
+        var opt = document.createElement("option");
+        opt.value = ordered[k];
+        opt.textContent = ordered[k];
+        sel.appendChild(opt);
+      }
+      sel.addEventListener("change", function () {
+        var want = sel.value;
+        for (var m = 0; m < allCards.length; m++) {
+          var cats = cardCategories(allCards[m]);
+          var match = want === "" || cats.indexOf(want) !== -1;
+          allCards[m].classList.toggle("cv-cat-hidden", !match);
+        }
+        refreshCounts();
+      });
+    }
+
+    function setupStatusFilter(root, allCards) {
+      var sel = root.querySelector("[data-filter-status]");
+      if (!sel) return;
+      sel.addEventListener("change", function () {
+        var want = sel.value;
+        for (var i = 0; i < allCards.length; i++) {
+          var shipped = isShipped(allCards[i]);
+          var match = want === "all" || (want === "done" && shipped) || (want === "pending" && !shipped);
+          allCards[i].classList.toggle("cv-status-hidden", !match);
+        }
+        refreshCounts();
+      });
+    }
+
+    function isVisibleCard(card) {
+      return !card.classList.contains("cv-status-hidden") && !card.classList.contains("cv-cat-hidden");
+    }
+
+    function refreshCounts() {
+      var cols = waveColumns();
+      for (var i = 0; i < cols.length; i++) {
+        var cnt = cols[i].querySelector(".whead .cnt");
+        if (!cnt) continue;
+        var cards = cols[i].querySelectorAll(".tcard");
+        var visible = 0;
+        var done = 0;
+        for (var j = 0; j < cards.length; j++) {
+          if (!isVisibleCard(cards[j])) continue;
+          visible++;
+          if (isShipped(cards[j])) done++;
+        }
+        cnt.textContent = done > 0 ? done + " done" : visible + " tasks";
+      }
+    }
+
+    function taskIds() {
+      var ids = [];
+      var seen = {};
+      var tids = document.querySelectorAll(".tcard .tid");
+      for (var i = 0; i < tids.length; i++) {
+        var raw = (tids[i].textContent || "").trim();
+        raw = raw.replace(/^\u2713\s*/, "");
+        if (raw && !seen[raw]) {
+          seen[raw] = true;
+          ids.push(raw);
+        }
+      }
+      return ids;
+    }
+
+    function cardForId(id) {
+      var tids = document.querySelectorAll(".tcard .tid");
+      for (var i = 0; i < tids.length; i++) {
+        var raw = (tids[i].textContent || "").trim().replace(/^\u2713\s*/, "");
+        if (raw === id) {
+          var card = tids[i].closest(".tcard");
+          if (card) return card;
+        }
+      }
+      return null;
+    }
+
+    function setupJump(root) {
+      var input = root.querySelector("[data-jump]");
+      var list = document.getElementById("task-ids");
+      if (!input || !list) return;
+      var ids = taskIds();
+      for (var i = 0; i < ids.length; i++) {
+        var opt = document.createElement("option");
+        opt.value = ids[i];
+        list.appendChild(opt);
+      }
+      var jump = function () {
+        var id = input.value.trim();
+        if (!id) return;
+        var card = cardForId(id);
+        if (!card) return;
+        card.open = true;
+        var prev = document.querySelector(".highlight");
+        if (prev) prev.classList.remove("highlight");
+        card.classList.add("highlight");
+        if (typeof card.scrollIntoView === "function") {
+          card.scrollIntoView({ block: "center" });
+        }
+        window.setTimeout(function () {
+          card.classList.remove("highlight");
+        }, 1600);
+      };
+      input.addEventListener("change", jump);
+      input.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          jump();
+        }
+      });
+    }
+  } catch (e) {
+    try { console.warn("plan-canvas interactivity failed to load:", e); } catch (_) {}
+  }
+})();
+</script>
+</body>
+</html>

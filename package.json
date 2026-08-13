@@ -1,0 +1,21 @@
+{
+  "name": "opencode-plan-canvas",
+  "version": "0.0.0",
+  "description": "Static plan→canvas generator for opencode Prometheus work plans",
+  "type": "module",
+  "bin": {
+    "opencode-plan-canvas": "src/cli.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "bunx tsc --noEmit",
+    "generate": "bun run src/cli.ts"
+  },
+  "devDependencies": {
+    "typescript": "latest",
+    "bun-types": "latest"
+  },
+  "keywords": ["opencode", "plan", "canvas", "prometheus"],
+  "author": "",
+  "license": "MIT"
+}
