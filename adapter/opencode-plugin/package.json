@@ -1,6 +1,6 @@
 {
   "name": "opencode-plan-canvas-plugin",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Optional opencode plugin that nudges a running opencode-plan-canvas watch server to refresh when a plan or boulder file changes",
   "type": "module",
   "main": "./dist/plugin.js",
