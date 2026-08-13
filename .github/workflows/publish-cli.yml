@@ -1,0 +1,75 @@
+name: Publish CLI
+
+# Publishes `opencode-plan-canvas` (the root plan→canvas CLI + watch server) to
+# npm with provenance via npm Trusted Publishing (OIDC) — no npm token required.
+#
+# Release = push an annotated tag `v<version>` (e.g. v0.1.0). The bare `v*` tag
+# namespace does not clash with the plugin's `plugin-v*` tags.
+#
+# ONE-TIME PREREQUISITES (do before the first tag push):
+#   1. Make the GitHub repo PUBLIC (provenance requires a public repo + package).
+#   2. Bootstrap the package on npm once, manually, from the built package
+#      (trusted publishing can only attach to an existing package):
+#        npm run build && npm publish --access public --provenance=false
+#   3. On npmjs.com: the `opencode-plan-canvas` package →
+#      Settings → Trusted Publishing → add a GitHub Actions publisher pointing at
+#      repo `zoispag/opencode-plan-canvas` and workflow file `publish-cli.yml`.
+# After that, every pushed `v*` tag auto-publishes. No NPM_TOKEN secret is used.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install root deps
+        run: bun install
+
+      # The root suite (bun test) includes test/adapter-plugin.test.ts, which
+      # imports the adapter and pulls in `@opencode-ai/plugin` (an adapter-local
+      # devDep). Install adapter deps BEFORE the root typecheck/test so the
+      # module resolves on a fresh CI checkout.
+      - name: Install adapter deps (for tests)
+        working-directory: adapter/opencode-plugin
+        run: npm ci || npm install
+
+      - name: Typecheck (root)
+        run: bunx tsc --noEmit
+
+      - name: Test (root)
+        run: bun test
+
+      - name: Build (dist)
+        run: npm run build
+
+      # Publishes with provenance (publishConfig.provenance + OIDC id-token).
+      - name: Publish to npm
+        run: npm publish
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "opencode-plan-canvas ${{ github.ref_name }}" \
+            --generate-notes \
+            --verify-tag

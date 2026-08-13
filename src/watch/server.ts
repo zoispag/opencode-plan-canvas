@@ -1,4 +1,5 @@
 import { injectActions, type TaskAction } from "../render/interactivity";
+import { openBrowser, serve } from "../runtime/host";
 
 export interface HtmlSnapshot {
   html: string;
@@ -92,9 +93,7 @@ function isHttpUrl(value: string): boolean {
 }
 
 function defaultOpenUrl(url: string): void {
-  try {
-    Bun.spawn(["open", url], { stdout: "ignore", stderr: "ignore", stdin: "ignore" });
-  } catch {}
+  openBrowser(url);
 }
 
 export function startServer(options: StartServerOptions): RunningServer {
@@ -105,7 +104,7 @@ export function startServer(options: StartServerOptions): RunningServer {
   const openUrl = options.openUrl ?? defaultOpenUrl;
   const log = options.log ?? ((m: string) => console.log(m));
 
-  const server = Bun.serve({
+  const server = serve({
     port,
     hostname: "127.0.0.1",
     async fetch(req: Request): Promise<Response> {
@@ -160,7 +159,7 @@ export function startServer(options: StartServerOptions): RunningServer {
     port: boundPort,
     stop(): void {
       try {
-        server.stop(true);
+        server.stop();
       } catch {}
     },
   };

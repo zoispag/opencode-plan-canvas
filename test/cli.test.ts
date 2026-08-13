@@ -5,6 +5,10 @@ import { tmpdir } from "os";
 
 const tmpTestDir = join(tmpdir(), "opencode-cli-test");
 
+const pkgVersion = JSON.parse(
+  readFileSync(join(import.meta.dirname, "..", "package.json"), "utf-8"),
+).version as string;
+
 beforeAll(() => {
   mkdirSync(tmpTestDir, { recursive: true });
 });
@@ -51,7 +55,7 @@ describe("CLI", () => {
     const exitCode = await proc.exited;
 
     expect(exitCode).toBe(0);
-    expect(stdout.trim()).toBe("0.0.0");
+    expect(stdout.trim()).toBe(pkgVersion);
   });
 
   it("-v also exits 0 and prints version", async () => {
@@ -63,7 +67,7 @@ describe("CLI", () => {
     const exitCode = await proc.exited;
 
     expect(exitCode).toBe(0);
-    expect(stdout.trim()).toBe("0.0.0");
+    expect(stdout.trim()).toBe(pkgVersion);
   });
 
   it("missing input file exits 1 with error containing filename", async () => {

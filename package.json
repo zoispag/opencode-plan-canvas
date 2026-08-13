@@ -1,21 +1,50 @@
 {
   "name": "opencode-plan-canvas",
-  "version": "0.0.0",
-  "description": "Static plan→canvas generator for opencode Prometheus work plans",
+  "version": "0.1.0",
+  "description": "Static plan→canvas generator for opencode Prometheus work plans — runs on Node and Bun",
   "type": "module",
   "bin": {
-    "opencode-plan-canvas": "src/cli.ts"
+    "opencode-plan-canvas": "./dist/cli.js"
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./cli": "./dist/cli.js"
+  },
+  "files": ["dist", "README.md"],
   "scripts": {
     "test": "bun test",
     "typecheck": "bunx tsc --noEmit",
-    "generate": "bun run src/cli.ts"
+    "generate": "bun run src/cli.ts",
+    "clean": "rm -rf dist",
+    "build": "tsc -p tsconfig.build.json && node scripts/postbuild.mjs",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "keywords": ["opencode", "plan", "canvas", "prometheus", "cli", "html", "live-reload"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zoispag/opencode-plan-canvas.git"
+  },
+  "homepage": "https://github.com/zoispag/opencode-plan-canvas#readme",
+  "bugs": {
+    "url": "https://github.com/zoispag/opencode-plan-canvas/issues"
+  },
+  "author": "zoispag",
+  "license": "MIT",
+  "publishConfig": {
+    "provenance": true,
+    "access": "public"
   },
   "devDependencies": {
+    "@types/node": "latest",
     "typescript": "latest",
     "bun-types": "latest"
-  },
-  "keywords": ["opencode", "plan", "canvas", "prometheus"],
-  "author": "",
-  "license": "MIT"
+  }
 }

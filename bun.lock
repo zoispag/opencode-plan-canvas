@@ -5,6 +5,7 @@
     "": {
       "name": "opencode-plan-canvas",
       "devDependencies": {
+        "@types/node": "latest",
         "bun-types": "latest",
         "typescript": "latest",
       },

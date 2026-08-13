@@ -3,8 +3,10 @@
 import { readFileSync } from "fs";
 import { existsSync, renameSync, writeFileSync } from "fs";
 import { basename, dirname, join } from "path";
+import { fileURLToPath } from "url";
 import { tmpdir } from "os";
 import { randomBytes } from "crypto";
+import { openBrowser } from "./runtime/host";
 import { generate } from "./index";
 import { parsePlan } from "./parse/index";
 import { resolveTaskActions, type TaskAction } from "./render/interactivity";
@@ -49,20 +51,12 @@ function atomicWrite(outputFile: string, html: string): void {
 }
 
 function readVersion(): string {
-  const pkg = JSON.parse(readFileSync(join(import.meta.dirname, "../package.json"), "utf-8"));
+  // `import.meta.dirname` resolves on Node >=20.11 and Bun; fall back to the
+  // module URL so a built `dist/cli.js` still finds the sibling package.json
+  // one directory up (both `src/` and `dist/` sit one level under the root).
+  const here = import.meta.dirname ?? dirname(fileURLToPath(import.meta.url));
+  const pkg = JSON.parse(readFileSync(join(here, "../package.json"), "utf-8"));
   return pkg.version;
-}
-
-function openBrowser(url: string): void {
-  try {
-    const cmd =
-      process.platform === "darwin"
-        ? ["open", url]
-        : process.platform === "win32"
-          ? ["cmd", "/c", "start", "", url]
-          : ["xdg-open", url];
-    Bun.spawn(cmd, { stdout: "ignore", stderr: "ignore", stdin: "ignore" });
-  } catch {}
 }
 
 async function runWatch(rest: string[]): Promise<void> {

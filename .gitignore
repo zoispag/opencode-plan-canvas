@@ -4,4 +4,5 @@ node_modules
 *.canvas.html
 .DS_Store
 .sisyphus/
+/dist/
 adapter/opencode-plugin/dist/

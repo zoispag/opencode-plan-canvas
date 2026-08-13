@@ -18,15 +18,46 @@ every run.
 
 ## Install
 
-This is a repo-local, Bun-based tool. There is no npm package.
+### From npm (Node or Bun)
+
+`opencode-plan-canvas` is published to npm and runs on both **Node ≥20.11** and
+**Bun**. The published package ships compiled JavaScript (`dist/`), so no build
+step is needed to use it.
+
+Run it once, without installing, via `npx`:
+
+```sh
+npx opencode-plan-canvas <plan.md>
+```
+
+Or install it globally to get an `opencode-plan-canvas` binary on your `PATH`:
+
+```sh
+npm i -g opencode-plan-canvas
+opencode-plan-canvas <plan.md>
+```
+
+Watch / live-reload mode works the same way:
+
+```sh
+npx opencode-plan-canvas watch <plan.md>            # serves http://127.0.0.1:4499, live-reloads on edit
+npx opencode-plan-canvas watch <plan.md> --port 4500 --no-open --out out.html
+```
+
+The package also exposes a small library API for programmatic use:
+
+```js
+import { generate } from "opencode-plan-canvas";
+
+const { html, warnings } = generate(planMarkdown);
+```
+
+### From source (Bun)
+
+For local development the tool runs straight from TypeScript source under Bun:
 
 ```sh
 bun install
-```
-
-Run it directly from source:
-
-```sh
 bun run src/cli.ts <plan.md>
 ```
 
@@ -41,6 +72,12 @@ opencode-plan-canvas <plan.md>
 
 ```sh
 bun run generate <plan.md>
+```
+
+To produce the Node-compatible `dist/` build locally:
+
+```sh
+npm run build      # compiles src/ → dist/ (ESM) with a node shebang on the CLI
 ```
 
 ## Usage
