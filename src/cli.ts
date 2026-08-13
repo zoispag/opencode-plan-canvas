@@ -201,8 +201,14 @@ async function runWatch(rest: string[]): Promise<void> {
     process.exit(0);
   };
 
+  // Real-terminal Ctrl-C delivers SIGINT to the whole foreground process group,
+  // so this handler fires in the process actually running the server. SIGTERM
+  // covers `kill`; SIGHUP covers the controlling terminal closing. Each is
+  // registered explicitly because a bare adopting launcher process may not
+  // forward them.
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+  process.on("SIGHUP", shutdown);
 
   await new Promise<void>(() => {});
 }
