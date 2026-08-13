@@ -63,10 +63,13 @@ follow opencode's rules: local plugins under `.opencode/plugins/` and
 `~/.config/opencode/plugins/` are auto-loaded at startup, and if the same npm
 plugin is listed more than once it is loaded a single time.
 
+This package ships **compiled JS + `.d.ts`** (built from `plugin.ts` with
+`tsc`), not raw TypeScript. The published tarball contains only `dist/` and this
+README — consumers get plain ESM with types and zero runtime dependencies.
+
 ### 1. Via `opencode.json` (npm)
 
-Once this package is **published to npm** as `opencode-plan-canvas-plugin`, add
-it to your opencode config's `plugin` array (npm package names only):
+Add it to your opencode config's `plugin` array (npm package names only):
 
 ```json
 {
@@ -79,8 +82,6 @@ opencode auto-installs npm plugins via Bun at startup (cached under
 `~/.cache/opencode/node_modules/`). Alternatively, add it as a dependency in a
 project-local `.opencode/package.json` and reference it the same way.
 
-> This adapter is **publish-ready** but has **not** been published here. Publish
-> it (`npm publish` from `adapter/opencode-plugin/`) before using the npm route.
 > A non-default port cannot be passed through the `plugin` array — use the local
 > wrapper form below for that.
 
@@ -110,6 +111,21 @@ import { createPlugin } from "opencode-plan-canvas-plugin";
 export default createPlugin({ port: 4500 });
 ```
 
+## Build
+
+`plugin.ts` is the source of truth. The published package is built from it:
+
+```sh
+cd adapter/opencode-plugin
+npm install        # installs the type-only devDep @opencode-ai/plugin
+npm run build      # tsc -p tsconfig.build.json → dist/plugin.js + dist/plugin.d.ts
+```
+
+`dist/` is gitignored (CI builds it fresh) and is produced automatically before
+publish via the `prepublishOnly` script. Both type-only imports
+(`@opencode-ai/plugin` and the inlined `ParseWarning`) are fully erased from the
+emitted JS, so `dist/plugin.js` is dependency-free ESM.
+
 ## Typechecking
 
 The adapter has its own `tsconfig.json` that extends the root config. Install
@@ -124,8 +140,41 @@ bunx tsc --noEmit -p adapter/opencode-plugin/tsconfig.json
 
 ## Dependency direction (one-way)
 
-The adapter MAY import **types** from the core (`src/model.ts`). The core
-(`src/`) never imports anything from `adapter/`. This one-way dependency keeps
-the core buildable and publishable without the adapter, and keeps opencode's
-runtime out of the root package entirely (`@opencode-ai/plugin` lives only in
-the adapter's own `package.json`, and only as a type-only devDependency).
+The adapter imports **no runtime code** from the core. It does not even import
+types from `src/` anymore: the one tiny shared type (`ParseWarning`) is inlined
+in `plugin.ts`, so the published package has **zero** dependency on `../../src`
+and `dist/` never references it. The core (`src/`) likewise never imports
+anything from `adapter/`. This keeps the core buildable and publishable without
+the adapter, and keeps opencode's runtime out of the root package entirely
+(`@opencode-ai/plugin` lives only in the adapter's own `package.json`, and only
+as a type-only devDependency).
+
+## Releasing
+
+Publishing is automated via GitHub Actions with **npm Trusted Publishing**
+(OIDC) — provenance attestations are generated and no npm token is stored. The
+workflow is `.github/workflows/publish-plugin.yml`, triggered by pushing a
+`plugin-v*` tag.
+
+One-time prerequisites (maintainer, before the first release):
+
+1. Make the GitHub repo **public** (provenance requires a public repo + package).
+2. On npmjs.com, open the `opencode-plan-canvas-plugin` package →
+   **Settings → Trusted Publishing → GitHub Actions**, and register repo
+   `zoispag/opencode-plan-canvas` with workflow file `publish-plugin.yml`.
+
+Per-release procedure:
+
+1. Bump the `version` in `adapter/opencode-plugin/package.json`.
+2. Commit the bump.
+3. Create an **annotated** (immutable) git tag and push it:
+
+   ```sh
+   git tag -a plugin-v0.1.0 -m "opencode-plan-canvas-plugin v0.1.0"
+   git push origin plugin-v0.1.0
+   ```
+
+4. GitHub Actions builds `dist/` fresh, runs the suite, and publishes to npm
+   with provenance via OIDC. (npm versions are immutable once published.)
+5. Recommended: create a **GitHub Release** from the same tag for a human-facing,
+   immutable release artifact.

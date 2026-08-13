@@ -1,0 +1,66 @@
+name: Publish plugin
+
+# Publishes `opencode-plan-canvas-plugin` (adapter/opencode-plugin) to npm with
+# provenance via npm Trusted Publishing (OIDC) — no npm token required.
+#
+# Release = push an annotated tag `plugin-v<version>` (e.g. plugin-v0.1.0).
+# The `plugin-` prefix namespaces plugin releases apart from any main-tool tag.
+#
+# ONE-TIME PREREQUISITES (do before the first tag push):
+#   1. Make the GitHub repo PUBLIC (provenance requires a public repo + package).
+#   2. On npmjs.com: the `opencode-plan-canvas-plugin` package →
+#      Settings → Trusted Publishing → add a GitHub Actions publisher pointing at
+#      repo `zoispag/opencode-plan-canvas` and workflow file `publish-plugin.yml`.
+# No NPM_TOKEN secret is used — auth is OIDC.
+
+on:
+  push:
+    tags:
+      - "plugin-v*"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: adapter/opencode-plugin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
+
+      # Root suite (bun test) covers the adapter helper tests for confidence.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install root deps (for tests)
+        working-directory: .
+        run: bun install
+
+      - name: Typecheck (root)
+        working-directory: .
+        run: bunx tsc --noEmit
+
+      - name: Test (root)
+        working-directory: .
+        run: bun test
+
+      - name: Install adapter deps
+        run: npm ci || npm install
+
+      - name: Build adapter (dist)
+        run: npm run build
+
+      # Publishes with provenance (publishConfig.provenance + OIDC id-token).
+      - name: Publish to npm
+        run: npm publish

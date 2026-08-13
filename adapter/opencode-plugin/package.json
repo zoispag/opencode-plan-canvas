@@ -3,13 +3,36 @@
   "version": "0.1.0",
   "description": "Optional opencode plugin that nudges a running opencode-plan-canvas watch server to refresh when a plan or boulder file changes",
   "type": "module",
-  "main": "plugin.ts",
+  "main": "./dist/plugin.js",
+  "types": "./dist/plugin.d.ts",
   "exports": {
-    ".": "./plugin.ts"
+    ".": {
+      "types": "./dist/plugin.d.ts",
+      "import": "./dist/plugin.js"
+    }
   },
-  "files": ["plugin.ts", "README.md"],
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
   "keywords": ["opencode", "opencode-plugin", "plugin", "plan", "canvas", "watch", "live-reload"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zoispag/opencode-plan-canvas.git",
+    "directory": "adapter/opencode-plugin"
+  },
+  "homepage": "https://github.com/zoispag/opencode-plan-canvas/tree/master/adapter/opencode-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/zoispag/opencode-plan-canvas/issues"
+  },
+  "author": "zoispag",
   "license": "MIT",
+  "publishConfig": {
+    "provenance": true,
+    "access": "public"
+  },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.18.18"
   }

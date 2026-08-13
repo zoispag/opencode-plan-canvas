@@ -1,5 +1,11 @@
 import type { Plugin } from "@opencode-ai/plugin";
-import type { ParseWarning } from "../../src/model";
+
+// Mirrors the core `ParseWarning` (src/model.ts). Inlined so the published
+// package has zero dependency on `../../src` and dist never references it.
+export interface ParseWarning {
+  line?: number;
+  message: string;
+}
 
 export const DEFAULT_REFRESH_PORT = 4499;
 
@@ -77,5 +83,3 @@ export function createPlugin(config?: AdapterConfig): Plugin {
 export const PlanCanvasPlugin: Plugin = createPlugin();
 
 export default PlanCanvasPlugin;
-
-export type { ParseWarning };
