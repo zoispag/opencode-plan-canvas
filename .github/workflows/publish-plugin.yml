@@ -36,7 +36,6 @@ jobs:
         with:
           node-version: 24
           registry-url: "https://registry.npmjs.org"
-          package-manager-cache: false
 
       # Root suite (bun test) covers the adapter helper tests for confidence.
       - uses: oven-sh/setup-bun@v2
@@ -47,6 +46,13 @@ jobs:
         working-directory: .
         run: bun install
 
+      # Adapter deps must be installed BEFORE the root typecheck/test, because
+      # test/adapter-plugin.test.ts imports the adapter which pulls in
+      # `@opencode-ai/plugin` (an adapter-local devDep). Without this, root
+      # `tsc --noEmit` fails to resolve the module on a fresh CI checkout.
+      - name: Install adapter deps
+        run: npm ci || npm install
+
       - name: Typecheck (root)
         working-directory: .
         run: bunx tsc --noEmit
@@ -54,9 +60,6 @@ jobs:
       - name: Test (root)
         working-directory: .
         run: bun test
-
-      - name: Install adapter deps
-        run: npm ci || npm install
 
       - name: Build adapter (dist)
         run: npm run build
