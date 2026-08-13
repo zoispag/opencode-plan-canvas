@@ -1,3 +1,4 @@
+import type { Plugin } from "@opencode-ai/plugin";
 import type { ParseWarning } from "../../src/model";
 
 export const DEFAULT_REFRESH_PORT = 4499;
@@ -8,22 +9,14 @@ export interface AdapterConfig {
   fetchImpl?: typeof fetch;
 }
 
+// Loose, testable stand-in for opencode's fully-typed `Event` union. Kept local
+// so the pure helpers unit-test without constructing an SDK `Event`; the real
+// `file.watcher.updated` carries `properties.file`, but we read file/path/filename
+// defensively in case the event shape shifts across opencode versions.
 export type OpencodeEvent = {
   type: string;
   properties?: Record<string, unknown>;
 };
-
-export interface OpencodePluginContext {
-  event?: (handler: (input: { event: OpencodeEvent }) => void | Promise<void>) => void;
-}
-
-export interface OpencodePluginHooks {
-  event?: (input: { event: OpencodeEvent }) => void | Promise<void>;
-}
-
-export type OpencodePlugin = (
-  context: OpencodePluginContext,
-) => OpencodePluginHooks | Promise<OpencodePluginHooks>;
 
 const PLAN_PATH_RE = /(^|\/)\.sisyphus\/plans\/[^/]+\.md$/;
 const BOULDER_PATH_RE = /(^|\/)\.sisyphus\/boulder\.json$/;
@@ -73,16 +66,16 @@ export async function handleEvent(
   return true;
 }
 
-export function createPlugin(config?: AdapterConfig): OpencodePlugin {
+export function createPlugin(config?: AdapterConfig): Plugin {
   return async () => ({
     event: async ({ event }) => {
-      await handleEvent(event, config);
+      await handleEvent(event as OpencodeEvent, config);
     },
   });
 }
 
-const plugin: OpencodePlugin = createPlugin();
+export const PlanCanvasPlugin: Plugin = createPlugin();
 
-export default plugin;
+export default PlanCanvasPlugin;
 
 export type { ParseWarning };

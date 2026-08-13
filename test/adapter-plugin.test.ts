@@ -40,6 +40,10 @@ function planEvent(path: string): OpencodeEvent {
   return { type: "file.watcher.updated", properties: { file: path } };
 }
 
+function fakePluginInput(): Parameters<ReturnType<typeof createPlugin>>[0] {
+  return {} as Parameters<ReturnType<typeof createPlugin>>[0];
+}
+
 describe("isWatchedPath", () => {
   test("matches plan markdown under .sisyphus/plans", () => {
     expect(isWatchedPath(".sisyphus/plans/x.md")).toBe(true);
@@ -270,9 +274,10 @@ describe("real watch server POST /refresh wiring", () => {
 
     const port = Number.parseInt(new URL(server.url).port, 10);
     const factory = createPlugin({ port });
-    const hooks = await factory({});
-    await hooks.event!({ event: planEvent("/repo/.sisyphus/plans/x.md") });
-    await hooks.event!({ event: planEvent("/repo/src/unrelated.ts") });
+    const hooks = await factory(fakePluginInput());
+    type EventArg = Parameters<NonNullable<typeof hooks.event>>[0]["event"];
+    await hooks.event!({ event: planEvent("/repo/.sisyphus/plans/x.md") as EventArg });
+    await hooks.event!({ event: planEvent("/repo/src/unrelated.ts") as EventArg });
 
     expect(refreshed).toBe(1);
   });
