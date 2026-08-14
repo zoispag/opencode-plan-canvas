@@ -101,10 +101,19 @@ it at startup and awaits the returned hooks object. This adapter returns an
 `event` hook (which nudges/auto-spawns) and a `dispose` hook (which kills any
 spawned server on shutdown).
 
-Exports:
+The package **entry** (`opencode-plan-canvas-plugin`) exports **only** the
+default Plugin factory — nothing else. opencode iterates a plugin module's
+exports and calls each as a factory, so the entry must expose only callable
+plugin factories; leaking a helper or a constant there makes opencode throw
+`Plugin export is not a function`.
 
-- `PlanCanvasPlugin: Plugin` — the named export (port `4499`).
-- `default` — the same factory as `PlanCanvasPlugin`.
+Entry export:
+
+- `default` — the ready-to-use Plugin factory (port `4499`).
+
+The configurable factory and the pure helpers live in a separate internal module
+reachable via the `./internal` subpath (`opencode-plan-canvas-plugin/internal`):
+
 - `createPlugin(config?: AdapterConfig): Plugin` — a configurable factory (see
   [Configuration](#configuration)).
 - Pure helpers, also exported for reuse/testing: `handleEvent` (unchanged
@@ -154,11 +163,11 @@ npm publish needed. A tiny wrapper file is all you need:
 ```ts
 // .opencode/plugins/plan-canvas.ts
 
-// If the package is linked/installed:
-export { PlanCanvasPlugin } from "opencode-plan-canvas-plugin";
+// If the package is linked/installed, re-export the ready-to-use default factory:
+export { default } from "opencode-plan-canvas-plugin";
 
-// OR, from a local checkout of this repo (absolute path):
-export { createPlugin } from "/abs/path/adapter/opencode-plugin/plugin.ts";
+// OR, from a local checkout of this repo (absolute path), use the internal module:
+export { createPlugin } from "/abs/path/adapter/opencode-plugin/internal.ts";
 ```
 
 To run against a non-default watch-server port, or to turn auto-spawn off, use
@@ -166,7 +175,7 @@ the configurable factory as the default export:
 
 ```ts
 // .opencode/plugins/plan-canvas.ts
-import { createPlugin } from "opencode-plan-canvas-plugin";
+import { createPlugin } from "opencode-plan-canvas-plugin/internal";
 
 export default createPlugin({ port: 4500 });
 
@@ -176,18 +185,20 @@ export default createPlugin({ port: 4500 });
 
 ## Build
 
-`plugin.ts` is the source of truth. The published package is built from it:
+`plugin.ts` (the thin entry) and `internal.ts` (helpers, constants, types, and
+orchestration) are the source of truth. The published package is built from
+both:
 
 ```sh
 cd adapter/opencode-plugin
 npm install        # installs the type-only devDep @opencode-ai/plugin
-npm run build      # tsc -p tsconfig.build.json → dist/plugin.js + dist/plugin.d.ts
+npm run build      # tsc -p tsconfig.build.json → dist/{plugin,internal}.{js,d.ts}
 ```
 
 `dist/` is gitignored (CI builds it fresh) and is produced automatically before
 publish via the `prepublishOnly` script. Both type-only imports
 (`@opencode-ai/plugin` and the inlined `ParseWarning`) are fully erased from the
-emitted JS, so `dist/plugin.js` is dependency-free ESM.
+emitted JS, so `dist/plugin.js` and `dist/internal.js` are dependency-free ESM.
 
 ## Typechecking
 
@@ -205,7 +216,7 @@ bunx tsc --noEmit -p adapter/opencode-plugin/tsconfig.json
 
 The adapter imports **no runtime code** from the core. It does not even import
 types from `src/` anymore: the one tiny shared type (`ParseWarning`) is inlined
-in `plugin.ts`, so the published package has **zero** dependency on `../../src`
+in `internal.ts`, so the published package has **zero** dependency on `../../src`
 and `dist/` never references it. The core (`src/`) likewise never imports
 anything from `adapter/`. This keeps the core buildable and publishable without
 the adapter, and keeps opencode's runtime out of the root package entirely

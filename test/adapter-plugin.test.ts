@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   DEFAULT_REFRESH_PORT,
   createPlugin,
@@ -15,7 +17,7 @@ import {
   type OpencodeEvent,
   type PluginState,
   type SpawnedChild,
-} from "../adapter/opencode-plugin/plugin";
+} from "../adapter/opencode-plugin/internal";
 import {
   createReloadHub,
   startServer,
@@ -591,5 +593,37 @@ describe("createPlugin dispose kills the spawned child", () => {
     expect(killed).toBe(0);
     await hooks.dispose!();
     expect(killed).toBe(1);
+  });
+});
+
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const ADAPTER_DIR = join(REPO_ROOT, "adapter", "opencode-plugin");
+const BUILT_ENTRY = join(ADAPTER_DIR, "dist", "plugin.js");
+
+describe("opencode loader contract on the BUILT package entry", () => {
+  beforeAll(() => {
+    execFileSync("npm", ["run", "build"], { cwd: ADAPTER_DIR, stdio: "ignore" });
+  });
+
+  test("default export is a plugin factory function", async () => {
+    const mod = await import(BUILT_ENTRY);
+    expect(typeof mod.default).toBe("function");
+  });
+
+  test("every named export opencode iterates is a plugin factory function", async () => {
+    const mod = await import(BUILT_ENTRY);
+    for (const [name, val] of Object.entries(mod)) {
+      if (name === "default") continue;
+      expect(typeof val, `export "${name}" must be a plugin factory function`).toBe(
+        "function",
+      );
+    }
+  });
+
+  test("calling the default factory yields hooks with event and dispose", async () => {
+    const mod = await import(BUILT_ENTRY);
+    const hooks = await mod.default({ directory: "/tmp", worktree: "/tmp" });
+    expect(typeof hooks.event).toBe("function");
+    expect(typeof hooks.dispose).toBe("function");
   });
 });

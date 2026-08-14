@@ -14,6 +14,6 @@
     "verbatimModuleSyntax": true,
     "types": []
   },
-  "include": ["plugin.ts"],
+  "include": ["plugin.ts", "internal.ts"],
   "exclude": ["node_modules", "dist"]
 }
