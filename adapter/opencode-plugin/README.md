@@ -136,6 +136,37 @@ This package ships **compiled JS + `.d.ts`** (built from `plugin.ts` with
 `tsc`), not raw TypeScript. The published tarball contains only `dist/` and this
 README — consumers get plain ESM with types and zero runtime dependencies.
 
+### Quick start (global config)
+
+The recommended path: add the plugin to your **global** opencode config at
+`~/.config/opencode/opencode.jsonc`, using an `@latest` pin:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "opencode-plan-canvas-plugin@latest"
+  ]
+}
+```
+
+**Restart opencode** — plugins are loaded at startup, so a newly added (or newly
+published) plugin only takes effect after a restart.
+
+Once loaded, editing any `.sisyphus/plans/*.md` file auto-spawns the canvas and
+opens your browser (see [Why it exists](#why-it-exists)) — no manual `npx`.
+
+> **Upgrade / cache gotcha.** opencode caches the *resolved* `@latest` version
+> under `~/.cache/opencode/packages/opencode-plan-canvas-plugin@latest/` and does
+> **not** re-resolve `@latest` on every restart. So after a new version is
+> published, a plain restart may keep loading the old one. To force the upgrade,
+> remove that cache directory and restart:
+>
+> ```sh
+> rm -rf ~/.cache/opencode/packages/opencode-plan-canvas-plugin@latest
+> # then restart opencode
+> ```
+
 ### 1. Via `opencode.json` (npm)
 
 Add it to your opencode config's `plugin` array (npm package names only):
@@ -148,7 +179,7 @@ Add it to your opencode config's `plugin` array (npm package names only):
 ```
 
 opencode auto-installs npm plugins via Bun at startup (cached under
-`~/.cache/opencode/node_modules/`). Alternatively, add it as a dependency in a
+`~/.cache/opencode/packages/`). Alternatively, add it as a dependency in a
 project-local `.opencode/package.json` and reference it the same way.
 
 > A non-default port cannot be passed through the `plugin` array — use the local
