@@ -5,33 +5,91 @@ This is an **optional** [opencode](https://opencode.ai) plugin for
 
 ## Why it exists
 
-`opencode-plan-canvas watch <plan.md>` already watches the plan (and the
+`opencode-plan-canvas watch <plan.md>` watches the plan (and the
 `.sisyphus/boulder.json` file) on disk with a native `fs.watch`-based watcher.
 That watcher regenerates the canvas and pushes a live-reload event over SSE all
 on its own — with **zero** dependency on opencode.
 
-Inside an opencode session, though, file changes are sometimes buffered or
-written in ways that a bare `fs.watch` notices a beat later. This plugin simply
-makes updates **snappier** while you are working inside opencode: it listens for
-opencode's `file.watcher.updated` event and, when the changed file is a plan or
-boulder file, sends a tiny `POST /refresh` nudge to the running watch server so
-it re-reads and regenerates immediately (bypassing the debounce).
+This plugin does two things while you work inside opencode:
 
-If you never install this plugin, the watch server behaves exactly the same —
-just with normal `fs.watch` latency. **The core tool does not know this plugin
-exists.**
+1. **Auto-spawns the watch server for you (default ON).** When a plan or boulder
+   file changes and no server is already listening, the plugin launches
+   `opencode-plan-canvas watch <plan> --port <port>` itself and lets the CLI open
+   your browser. You no longer have to run `npx opencode-plan-canvas watch <plan>`
+   by hand — just edit a plan and the canvas appears.
+2. **Nudges an already-running server to be snappier.** Inside an opencode
+   session, file changes are sometimes buffered or written in ways that a bare
+   `fs.watch` notices a beat later. When a server is already up, the plugin sends
+   a tiny `POST /refresh` so it re-reads and regenerates immediately (bypassing
+   the debounce).
+
+When opencode shuts down, the plugin kills the server it spawned (via the
+`dispose` hook and process-exit handlers), so it never leaves a zombie holding
+port `4499`.
+
+If you never install this plugin, the watch server still behaves exactly the
+same when you start it yourself — just with normal `fs.watch` latency and no
+auto-spawn. **The core tool does not know this plugin exists.**
 
 ## What it does
 
 - Subscribes to opencode's `file.watcher.updated` event.
 - When the changed path matches `**/.sisyphus/plans/*.md` or
-  `**/.sisyphus/boulder.json`, it POSTs to
-  `http://127.0.0.1:<port>/refresh` (default port `4499`).
-- Any other path (e.g. `src/foo.ts`) is ignored — no request is sent.
+  `**/.sisyphus/boulder.json`, it first probes the watch server with a
+  `POST /refresh` to `http://127.0.0.1:<port>/refresh` (default port `4499`):
+  - **If a server answers**, that nudge forces an immediate re-read/regen and the
+    plugin is done (no spawn).
+  - **If nothing answers** and auto-spawn is enabled (the default), the plugin
+    spawns the `watch` server for the resolved plan. The spawned CLI opens the
+    browser itself.
+- Any other path (e.g. `src/foo.ts`) is ignored — no request and no spawn.
+
+Spawning is **deduplicated**: a burst of rapid events produces at most one
+server. The child is spawned detached with its stdio ignored and `unref`'d, so
+it never holds opencode open, and it is killed on opencode exit.
 
 The `/refresh` endpoint is a no-auth, localhost-only development nudge. It only
 triggers an immediate re-read/regen of the plan the watch server is already
 watching; it carries no payload and cannot write back to any file.
+
+### Boulder-file resolution
+
+A plan event (`.sisyphus/plans/*.md`) spawns `watch` for that exact plan and is
+remembered as the "last seen" plan. A `.sisyphus/boulder.json` event has no plan
+path of its own, so the plugin resolves a sibling plan: if `.sisyphus/plans/`
+holds exactly one `*.md` it uses that; otherwise it reuses the last-seen plan; if
+neither is available it simply skips spawning (it never crashes). A plan event
+always nudges an already-running server regardless.
+
+## Configuration
+
+`createPlugin(config?)` accepts (all optional, backward-compatible):
+
+- `port?: number` — watch-server port to nudge/spawn on. Default `4499`.
+- `host?: string` — host for the `/refresh` nudge. Default `127.0.0.1`.
+- `autoSpawn?: boolean` — auto-spawn the server when none is running. Default
+  **true**.
+- `spawnCommand?: string[]` — base command used to launch the server. Default
+  `["npx", "-y", "opencode-plan-canvas@latest"]`. The plugin appends
+  `watch <planPath> --port <port>` (and any `spawnExtraArgs`) to it.
+- `spawnExtraArgs?: string[]` — extra flags appended after the plan path (e.g.
+  `["--no-open"]`).
+- `spawnImpl?: (cmd: string[]) => { kill: () => void }` — injectable spawner
+  (mainly for tests). The default uses `child_process.spawn` detached with
+  `stdio: "ignore"` + `unref()`, and its `kill()` terminates the process group.
+- `fetchImpl?: typeof fetch` — injectable fetch (mainly for tests).
+
+### Opt out of auto-spawn
+
+Set the environment variable `OPENCODE_PLAN_CANVAS_NO_SPAWN` to a truthy value to
+force auto-spawn **off** for the whole session (env beats config). The plugin
+then only nudges an already-running server, exactly like v0.1.x:
+
+```sh
+OPENCODE_PLAN_CANVAS_NO_SPAWN=1 opencode
+```
+
+Or set `autoSpawn: false` in `createPlugin({ autoSpawn: false })`.
 
 ## Plugin contract
 
@@ -39,18 +97,20 @@ This module is a real opencode plugin, aligned to the official
 [`@opencode-ai/plugin`](https://www.npmjs.com/package/@opencode-ai/plugin)
 `Plugin` type. A plugin is a module that exports a factory function
 `async ({ project, client, $, directory, worktree }) => Hooks`; opencode calls
-it at startup and awaits the returned hooks object. This adapter returns a
-single `event` hook.
+it at startup and awaits the returned hooks object. This adapter returns an
+`event` hook (which nudges/auto-spawns) and a `dispose` hook (which kills any
+spawned server on shutdown).
 
 Exports:
 
 - `PlanCanvasPlugin: Plugin` — the named export (port `4499`).
 - `default` — the same factory as `PlanCanvasPlugin`.
-- `createPlugin(config?: { port?, host?, fetchImpl? }): Plugin` — a
-  port-configurable factory.
-- Pure helpers, also exported for reuse/testing: `handleEvent`,
+- `createPlugin(config?: AdapterConfig): Plugin` — a configurable factory (see
+  [Configuration](#configuration)).
+- Pure helpers, also exported for reuse/testing: `handleEvent` (unchanged
+  nudge-only), `orchestrateEvent` (the nudge-then-spawn orchestrator),
   `isWatchedPath`, `extractChangedPath`, `refreshUrl`, `postRefresh`,
-  `AdapterConfig`, `DEFAULT_REFRESH_PORT` (`4499`).
+  `AdapterConfig`, `PluginState`, `SpawnedChild`, `DEFAULT_REFRESH_PORT` (`4499`).
 
 `@opencode-ai/plugin` is a **type-only devDependency** of this adapter's own
 `package.json`; it is imported with `import type` and adds **no runtime
@@ -101,14 +161,17 @@ export { PlanCanvasPlugin } from "opencode-plan-canvas-plugin";
 export { createPlugin } from "/abs/path/adapter/opencode-plugin/plugin.ts";
 ```
 
-To run against a non-default watch-server port, use the port-configurable
-factory as the default export:
+To run against a non-default watch-server port, or to turn auto-spawn off, use
+the configurable factory as the default export:
 
 ```ts
 // .opencode/plugins/plan-canvas.ts
 import { createPlugin } from "opencode-plan-canvas-plugin";
 
 export default createPlugin({ port: 4500 });
+
+// Nudge-only (no auto-spawn), matching v0.1.x behavior:
+// export default createPlugin({ autoSpawn: false });
 ```
 
 ## Build

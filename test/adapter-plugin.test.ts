@@ -1,13 +1,20 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   DEFAULT_REFRESH_PORT,
   createPlugin,
   extractChangedPath,
   handleEvent,
   isWatchedPath,
+  orchestrateEvent,
   postRefresh,
   refreshUrl,
+  type AdapterConfig,
   type OpencodeEvent,
+  type PluginState,
+  type SpawnedChild,
 } from "../adapter/opencode-plugin/plugin";
 import {
   createReloadHub,
@@ -296,5 +303,293 @@ describe("real watch server POST /refresh wiring", () => {
     const res = await fetch(`${server.url}/refresh`, { method: "GET" });
     expect(res.status).toBe(404);
     await res.text();
+  });
+});
+
+const NUDGE_FAIL: typeof fetch = (async () => {
+  throw new Error("connection refused");
+}) as unknown as typeof fetch;
+
+const NUDGE_OK: typeof fetch = (async () =>
+  new Response(null, { status: 204 })) as unknown as typeof fetch;
+
+function recordingSpawner(calls: string[][]): {
+  spawnImpl: (cmd: string[]) => SpawnedChild;
+  kills: number[];
+} {
+  const kills: number[] = [];
+  const spawnImpl = (cmd: string[]): SpawnedChild => {
+    const index = calls.push([...cmd]) - 1;
+    return { kill: () => kills.push(index) };
+  };
+  return { spawnImpl, kills };
+}
+
+function freshState(): PluginState {
+  return { hasSpawned: false };
+}
+
+function inputFor(directory: string): { directory: string; worktree: string } {
+  return { directory, worktree: directory };
+}
+
+describe("orchestrateEvent auto-spawn", () => {
+  afterEach(() => {
+    delete process.env.OPENCODE_PLAN_CANVAS_NO_SPAWN;
+  });
+
+  test("watched plan + nudge fails + autoSpawn -> spawns once with correct cmd", async () => {
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    const config: AdapterConfig = {
+      port: 4499,
+      autoSpawn: true,
+      fetchImpl: NUDGE_FAIL,
+      spawnImpl,
+      spawnExtraArgs: ["--no-open"],
+    };
+    const state = freshState();
+    const outcome = await orchestrateEvent(
+      planEvent("/repo/.sisyphus/plans/x.md"),
+      config,
+      inputFor("/repo"),
+      state,
+    );
+    expect(outcome).toBe("spawned");
+    expect(calls.length).toBe(1);
+    const cmd = calls[0]!;
+    expect(cmd).toContain("watch");
+    expect(cmd).toContain("/repo/.sisyphus/plans/x.md");
+    const portIdx = cmd.indexOf("--port");
+    expect(portIdx).toBeGreaterThan(-1);
+    expect(cmd[portIdx + 1]).toBe("4499");
+    expect(cmd).toContain("--no-open");
+    expect(state.hasSpawned).toBe(true);
+    expect(state.child).toBeDefined();
+  });
+
+  test("burst of 5 rapid events + nudge always fails -> spawns exactly once", async () => {
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    const config: AdapterConfig = {
+      autoSpawn: true,
+      fetchImpl: NUDGE_FAIL,
+      spawnImpl,
+    };
+    const state = freshState();
+    const outcomes = await Promise.all(
+      Array.from({ length: 5 }, () =>
+        orchestrateEvent(
+          planEvent("/repo/.sisyphus/plans/x.md"),
+          config,
+          inputFor("/repo"),
+          state,
+        ),
+      ),
+    );
+    expect(calls.length).toBe(1);
+    expect(outcomes.filter((o) => o === "spawned").length).toBe(1);
+    expect(outcomes.filter((o) => o === "skipped").length).toBe(4);
+  });
+
+  test("nudge succeeds -> does NOT spawn, returns nudged", async () => {
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    const config: AdapterConfig = {
+      autoSpawn: true,
+      fetchImpl: NUDGE_OK,
+      spawnImpl,
+    };
+    const state = freshState();
+    const outcome = await orchestrateEvent(
+      planEvent("/repo/.sisyphus/plans/x.md"),
+      config,
+      inputFor("/repo"),
+      state,
+    );
+    expect(outcome).toBe("nudged");
+    expect(calls.length).toBe(0);
+    expect(state.hasSpawned).toBe(false);
+  });
+
+  test("autoSpawn=false -> never spawns even when nudge fails (skipped)", async () => {
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    const config: AdapterConfig = {
+      autoSpawn: false,
+      fetchImpl: NUDGE_FAIL,
+      spawnImpl,
+    };
+    const state = freshState();
+    const outcome = await orchestrateEvent(
+      planEvent("/repo/.sisyphus/plans/x.md"),
+      config,
+      inputFor("/repo"),
+      state,
+    );
+    expect(outcome).toBe("skipped");
+    expect(calls.length).toBe(0);
+  });
+
+  test("OPENCODE_PLAN_CANVAS_NO_SPAWN beats autoSpawn=true (skipped)", async () => {
+    process.env.OPENCODE_PLAN_CANVAS_NO_SPAWN = "1";
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    const config: AdapterConfig = {
+      autoSpawn: true,
+      fetchImpl: NUDGE_FAIL,
+      spawnImpl,
+    };
+    const state = freshState();
+    const outcome = await orchestrateEvent(
+      planEvent("/repo/.sisyphus/plans/x.md"),
+      config,
+      inputFor("/repo"),
+      state,
+    );
+    expect(outcome).toBe("skipped");
+    expect(calls.length).toBe(0);
+  });
+
+  test("non-watched path -> ignored, no nudge, no spawn", async () => {
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    let fetched = 0;
+    const fetchImpl = (async () => {
+      fetched += 1;
+      throw new Error("should not be called");
+    }) as unknown as typeof fetch;
+    const config: AdapterConfig = { autoSpawn: true, fetchImpl, spawnImpl };
+    const state = freshState();
+    const outcome = await orchestrateEvent(
+      planEvent("/repo/src/foo.ts"),
+      config,
+      inputFor("/repo"),
+      state,
+    );
+    expect(outcome).toBe("ignored");
+    expect(fetched).toBe(0);
+    expect(calls.length).toBe(0);
+  });
+
+  test("relative plan path is absolutized against input.directory", async () => {
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    const config: AdapterConfig = {
+      autoSpawn: true,
+      fetchImpl: NUDGE_FAIL,
+      spawnImpl,
+    };
+    const state = freshState();
+    const outcome = await orchestrateEvent(
+      planEvent(".sisyphus/plans/live.md"),
+      config,
+      inputFor("/abs/repo"),
+      state,
+    );
+    expect(outcome).toBe("spawned");
+    expect(calls[0]!).toContain("/abs/repo/.sisyphus/plans/live.md");
+  });
+});
+
+describe("orchestrateEvent boulder.json resolution", () => {
+  afterEach(() => {
+    delete process.env.OPENCODE_PLAN_CANVAS_NO_SPAWN;
+  });
+
+  test("boulder-only event with no known plan -> skipped (never crashes)", async () => {
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    const config: AdapterConfig = {
+      autoSpawn: true,
+      fetchImpl: NUDGE_FAIL,
+      spawnImpl,
+    };
+    const state = freshState();
+    const outcome = await orchestrateEvent(
+      planEvent("/nonexistent-xyz/.sisyphus/boulder.json"),
+      config,
+      inputFor("/nonexistent-xyz"),
+      state,
+    );
+    expect(outcome).toBe("skipped");
+    expect(calls.length).toBe(0);
+  });
+
+  test("boulder event reuses a previously seen plan path", async () => {
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    const config: AdapterConfig = {
+      autoSpawn: true,
+      fetchImpl: NUDGE_OK,
+      spawnImpl,
+    };
+    const state = freshState();
+    // First, a plan event (nudge OK, no spawn) records lastPlanPath.
+    await orchestrateEvent(
+      planEvent("/repo/.sisyphus/plans/x.md"),
+      config,
+      inputFor("/repo"),
+      state,
+    );
+    expect(state.lastPlanPath).toBe("/repo/.sisyphus/plans/x.md");
+    // Then a boulder event while nudge fails should spawn using that plan.
+    const failConfig: AdapterConfig = { ...config, fetchImpl: NUDGE_FAIL };
+    const outcome = await orchestrateEvent(
+      planEvent("/repo/.sisyphus/boulder.json"),
+      failConfig,
+      inputFor("/repo"),
+      state,
+    );
+    expect(outcome).toBe("spawned");
+    expect(calls[0]!).toContain("/repo/.sisyphus/plans/x.md");
+  });
+
+  test("boulder event resolves the sole *.md sibling under .sisyphus/plans", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "boulder-resolve-"));
+    const plansDir = join(dir, ".sisyphus", "plans");
+    mkdirSync(plansDir, { recursive: true });
+    const planPath = join(plansDir, "only-plan.md");
+    writeFileSync(planPath, "# plan");
+    try {
+      const calls: string[][] = [];
+      const { spawnImpl } = recordingSpawner(calls);
+      const config: AdapterConfig = {
+        autoSpawn: true,
+        fetchImpl: NUDGE_FAIL,
+        spawnImpl,
+      };
+      const state = freshState();
+      const outcome = await orchestrateEvent(
+        planEvent(join(dir, ".sisyphus", "boulder.json")),
+        config,
+        inputFor(dir),
+        state,
+      );
+      expect(outcome).toBe("spawned");
+      expect(calls[0]!).toContain(planPath);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("createPlugin dispose kills the spawned child", () => {
+  test("dispose() calls child.kill()", async () => {
+    let killed = 0;
+    const spawnImpl = (): SpawnedChild => ({ kill: () => (killed += 1) });
+    const factory = createPlugin({
+      autoSpawn: true,
+      fetchImpl: NUDGE_FAIL,
+      spawnImpl,
+    });
+    const hooks = await factory(inputFor("/repo") as never);
+    type EventArg = Parameters<NonNullable<typeof hooks.event>>[0]["event"];
+    await hooks.event!({
+      event: planEvent("/repo/.sisyphus/plans/x.md") as EventArg,
+    });
+    expect(killed).toBe(0);
+    await hooks.dispose!();
+    expect(killed).toBe(1);
   });
 });
