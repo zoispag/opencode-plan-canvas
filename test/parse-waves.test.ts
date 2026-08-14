@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeSource, splitSections } from "../src/parse/core";
 import type { RawSection } from "../src/parse/core";
-import { normalizeEntryId, parseWaves, reconcile } from "../src/parse/waves";
+import { normalizeEntryId, parseEntry, parseWaves, reconcile } from "../src/parse/waves";
 import type { FinalTask, Task, Wave } from "../src/model";
 
 const fixturePath = join(import.meta.dir, "fixtures", "golden-plan.md");
@@ -218,6 +218,46 @@ describe("normalizeEntryId — T/F prefix stripping", () => {
     expect(normalizeEntryId("T8B")).toBe("T8B");
     expect(normalizeEntryId("T8bc")).toBe("T8bc");
   });
+
+  test("verbose 'Task N' ids normalize to the bare number", () => {
+    expect(normalizeEntryId("Task 1")).toBe("1");
+    expect(normalizeEntryId("Task 8b")).toBe("8b");
+    expect(normalizeEntryId("task 3")).toBe("3");
+    expect(normalizeEntryId("Task 12")).toBe("12");
+  });
+
+  test("bare 'Task' with no number is unchanged", () => {
+    expect(normalizeEntryId("Task")).toBe("Task");
+  });
+});
+
+describe("parseEntry — 'Task N' wave-entry convention (the reported bug)", () => {
+  test("'├── Task 1: Branch [quick]' is NOT dropped; id captured as 'Task 1'", () => {
+    const entry = parseEntry("├── Task 1: Branch [quick]");
+    expect(entry).not.toBeNull();
+    expect(entry!.id).toBe("Task 1");
+    expect(entry!.title.length).toBeGreaterThan(0);
+    expect(entry!.checked).toBe(false);
+  });
+
+  test("'└── Task 2:  IncompleteSnapshotException [quick]' parses (extra spaces tolerated)", () => {
+    const entry = parseEntry("└── Task 2:  IncompleteSnapshotException [quick]");
+    expect(entry).not.toBeNull();
+    expect(entry!.id).toBe("Task 2");
+    expect(entry!.title.length).toBeGreaterThan(0);
+  });
+
+  test("'Task 12b' suffix id is captured", () => {
+    const entry = parseEntry("├── Task 12b: x");
+    expect(entry).not.toBeNull();
+    expect(entry!.id).toBe("Task 12b");
+  });
+
+  test("existing conventions unchanged: T1 / bare number / hyphenated id", () => {
+    expect(parseEntry("├── T1: something")!.id).toBe("T1");
+    expect(parseEntry("1: bare")!.id).toBe("1");
+    expect(parseEntry("T-WIDGET-CORE: x")!.id).toBe("T-WIDGET-CORE");
+  });
 });
 
 describe("reconcile — normalized pairing of wave entries and tasks", () => {
@@ -311,6 +351,24 @@ describe("reconcile — normalized pairing of wave entries and tasks", () => {
     expect(pairs.size).toBe(ids.length);
     expect(tasksWithoutEntries.length).toBe(0);
     expect(entriesWithoutTasks.length).toBe(0);
+  });
+
+  test("'Task N' wave entries pair numbered TODOs with zero Unassigned warnings", () => {
+    const waves: Wave[] = [
+      {
+        name: "Wave 1",
+        entries: [
+          { id: "Task 1", checked: true, title: "Branch + config file" },
+          { id: "Task 2", checked: true, title: "IncompleteSnapshotException" },
+        ],
+      },
+    ];
+    const tasks = [task("1"), task("2")];
+    const { pairs, entriesWithoutTasks, tasksWithoutEntries } = reconcile(waves, tasks);
+    expect(pairs.get("Task 1")).toBe(tasks[0]!);
+    expect(pairs.get("Task 2")).toBe(tasks[1]!);
+    expect(entriesWithoutTasks.length).toBe(0);
+    expect(tasksWithoutEntries.length).toBe(0);
   });
 
   test("first-wins determinism: two tasks normalizing to same key -> first registered pairs", () => {

@@ -7,9 +7,14 @@ import { parsePlan } from "../src/parse/index";
 import { buildTaskLookup, matchEntryToTask } from "../src/parse/waves";
 
 const GOLDEN = join(import.meta.dirname, "fixtures", "golden-plan.md");
+const TASK_N = join(import.meta.dirname, "fixtures", "task-n-waves-plan.md");
 
 function goldenSource(): string {
   return readFileSync(GOLDEN, "utf-8");
+}
+
+function taskNSource(): string {
+  return readFileSync(TASK_N, "utf-8");
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -89,6 +94,29 @@ describe("integration: parse -> model -> render pipeline", () => {
     expect(html.includes(`id="decisions"`)).toBe(false);
     expect(html.includes(`id="crit"`)).toBe(false);
     expect(Array.isArray(warnings)).toBe(true);
+  });
+
+  it("'Task N' wave entries reconcile with numbered TODOs: zero Unassigned", () => {
+    const source = taskNSource();
+    const { html, warnings } = generate(source);
+    const unassignedWarnings = warnings.filter((w) =>
+      w.message.includes("not present in any wave"),
+    );
+    expect(unassignedWarnings.length).toBe(0);
+    expect(html.includes(">Unassigned<")).toBe(false);
+    expect(html.includes(`id="waves"`)).toBe(true);
+
+    const plan = parsePlan(source);
+    const lookup = buildTaskLookup(plan.tasks);
+    const finalIds = new Set(plan.finalTasks.map((f) => f.id));
+    const paired = new Set<(typeof plan.tasks)[number]>();
+    for (const wave of plan.waves) {
+      for (const entry of wave.entries) {
+        const t = matchEntryToTask(entry, lookup, finalIds);
+        if (t) paired.add(t);
+      }
+    }
+    expect(plan.tasks.filter((t) => !paired.has(t)).length).toBe(0);
   });
 
   it("CLI prints warn: to STDERR and keeps STDOUT clean during file output", async () => {

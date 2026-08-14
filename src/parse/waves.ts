@@ -3,20 +3,30 @@ import type { RawSection } from "./core";
 import { scanLines } from "./core";
 
 /**
- * Normalize a wave-entry or task id so that the ASCII-tree convention (`T1`,
- * `F1`, `T8b`) reconciles with the numbered-task convention (`1`, `8b`).
+ * Normalize a wave-entry or task id so that the ASCII-tree conventions (`T1`,
+ * `F1`, `T8b`) and the verbose `Task N` convention reconcile with the
+ * numbered-task convention (`1`, `8b`).
  *
- * Rule: if the id is a `T`/`F` prefix immediately followed by digits and an
- * optional single trailing lowercase letter (e.g. `T1`, `F3`, `T8b`), the
- * normalized key is the part AFTER the prefix (`T1`→`1`, `F1`→`1`, `T8b`→`8b`).
- * Any other id — a bare number (`1`), a hyphenated id (`T-WIDGET-CORE`), or a
- * bare `T` with no digits — is returned unchanged.
+ * Rules:
+ * - A `T`/`F` prefix immediately followed by digits and an optional single
+ *   trailing lowercase letter (e.g. `T1`, `F3`, `T8b`) normalizes to the part
+ *   AFTER the prefix (`T1`→`1`, `F1`→`1`, `T8b`→`8b`).
+ * - A verbose `Task N` id — the literal word `Task` (case-insensitive),
+ *   one-or-more spaces, then digits and an optional trailing lowercase letter
+ *   (e.g. `Task 1`, `Task 8b`, `task 3`) — normalizes to just that trailing
+ *   number (`Task 1`→`1`, `Task 8b`→`8b`, `task 3`→`3`). This lets plans that
+ *   write wave entries as `├── Task 1: …` reconcile with a numbered TODO `1`.
+ * - Any other id — a bare number (`1`), a hyphenated id (`T-WIDGET-CORE`), or a
+ *   bare `T` with no digits — is returned unchanged.
  *
  * Exported so the renderer (`src/render/waves.ts`) shares the exact same
  * matching logic and the two modules cannot drift.
  */
 const NORMALIZE_RE = /^([TF])(\d+[a-z]?)$/;
+const TASK_ID_RE = /^Task\s+(\d+[a-z]?)$/i;
 export function normalizeEntryId(id: string): string {
+  const taskMatch = TASK_ID_RE.exec(id);
+  if (taskMatch) return taskMatch[1]!;
   const m = NORMALIZE_RE.exec(id);
   return m ? m[2]! : id;
 }
@@ -66,7 +76,7 @@ export interface ReconcileResult {
 const FENCE_RE = /^[ \t]*(`{3,}|~{3,})/;
 const WAVE_HEADER_RE = /^Wave\b(.*):\s*$/;
 const GLYPH_RE = /^[\s│]*(?:├──|└──)?\s*/;
-const ENTRY_RE = /^([A-Za-z0-9][A-Za-z0-9-]*):\s*(.*)$/;
+const ENTRY_RE = /^(Task\s+\d+[a-z]?|[A-Za-z0-9][A-Za-z0-9-]*):\s*(.*)$/i;
 const CHECKBOX_RE = /^\[( |x|X)\]\s*(.*)$/;
 const TRAILING_NOTE_RE = /\s*\(([^()]*)\)\s*$/;
 const CRITICAL_PATH_RE = /^Critical Path:\s*(.*)$/i;
@@ -94,7 +104,7 @@ function parseWaveHeader(line: string): { name: string; description?: string } |
   return { name: `Wave ${rest.trim()}`.trim() };
 }
 
-function parseEntry(rawLine: string): WaveEntry | null {
+export function parseEntry(rawLine: string): WaveEntry | null {
   const stripped = rawLine.replace(GLYPH_RE, "");
   const entryMatch = ENTRY_RE.exec(stripped);
   if (!entryMatch) return null;
