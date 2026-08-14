@@ -546,3 +546,228 @@ export function applyInprogress(body: string): string {
     body.slice(idx + `<details class="tcard">`.length)
   );
 }
+
+export const MESSAGING_MAX_LEN = 8000;
+
+const RAW_MESSAGING_SCRIPT = String.raw`
+(function () {
+  "use strict";
+  try {
+    if (typeof document === "undefined") return;
+    var MAX_LEN = ${MESSAGING_MAX_LEN};
+    var ready = function (fn) {
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", fn, { once: true });
+      } else {
+        fn();
+      }
+    };
+    ready(function () {
+      try { initMessaging(); } catch (e) {
+        try { console.warn("plan-canvas messaging disabled:", e); } catch (_) {}
+      }
+    });
+
+    function postPrompt(text, taskId) {
+      var payload = { text: text };
+      if (taskId) payload.taskId = taskId;
+      return fetch("/prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }).then(function (res) {
+        return res.status === 202 || res.ok;
+      });
+    }
+
+    function flash(el, text) {
+      var old = el.textContent;
+      el.textContent = text;
+      window.setTimeout(function () { el.textContent = old; }, 1400);
+    }
+
+    function buildBar() {
+      var bar = document.createElement("div");
+      bar.className = "msg-bar";
+      bar.setAttribute("data-msg-bar", "");
+
+      var input = document.createElement("textarea");
+      input.className = "msg-input";
+      input.setAttribute("rows", "1");
+      input.setAttribute("placeholder", "Message the agent\u2026 (e.g. add a task to do xyz)");
+      input.setAttribute("maxlength", String(MAX_LEN));
+
+      var send = document.createElement("button");
+      send.type = "button";
+      send.className = "msg-send";
+      send.textContent = "Send";
+
+      var submit = function () {
+        var text = (input.value || "").trim();
+        if (!text) return;
+        send.disabled = true;
+        postPrompt(text, null).then(function (ok) {
+          send.disabled = false;
+          if (ok) {
+            input.value = "";
+            flash(send, "Sent");
+          } else {
+            flash(send, "Failed");
+          }
+        }).catch(function () {
+          send.disabled = false;
+          flash(send, "Failed");
+        });
+      };
+
+      send.addEventListener("click", submit);
+      input.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) {
+          ev.preventDefault();
+          submit();
+        }
+      });
+
+      bar.appendChild(input);
+      bar.appendChild(send);
+      return bar;
+    }
+
+    function taskCards() {
+      return Array.prototype.slice.call(document.querySelectorAll("details.tcard"));
+    }
+
+    function taskIdOf(card) {
+      var tid = card.querySelector(".tid");
+      if (!tid) return "";
+      return (tid.textContent || "").trim().replace(/^\u2713\s*/, "");
+    }
+
+    function addTaskButton(card) {
+      var summary = card.querySelector("summary");
+      if (!summary) return;
+      if (summary.querySelector(".msg-task-btn")) return;
+      var id = taskIdOf(card);
+      if (!id) return;
+
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "msg-task-btn";
+      btn.setAttribute("data-msg-task", id);
+      btn.textContent = "send message";
+      btn.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openTaskComposer(card, id, btn);
+      });
+
+      var row = summary.querySelector(".action-row");
+      if (row) {
+        row.appendChild(btn);
+      } else {
+        var wrap = document.createElement("div");
+        wrap.className = "action-row";
+        wrap.appendChild(btn);
+        summary.appendChild(wrap);
+      }
+    }
+
+    function openTaskComposer(card, id, btn) {
+      var body = card.querySelector(".tbody") || card;
+      var existing = card.querySelector(".msg-composer");
+      if (existing) {
+        var ta = existing.querySelector("textarea");
+        if (ta) ta.focus();
+        return;
+      }
+      card.open = true;
+
+      var box = document.createElement("div");
+      box.className = "msg-composer";
+
+      var ta = document.createElement("textarea");
+      ta.className = "msg-input";
+      ta.setAttribute("rows", "2");
+      ta.setAttribute("maxlength", String(MAX_LEN));
+      ta.setAttribute("placeholder", "Message about task " + id + "\u2026");
+
+      var send = document.createElement("button");
+      send.type = "button";
+      send.className = "msg-send";
+      send.textContent = "Send";
+
+      var submit = function () {
+        var text = (ta.value || "").trim();
+        if (!text) return;
+        send.disabled = true;
+        postPrompt(text, id).then(function (ok) {
+          send.disabled = false;
+          if (ok) {
+            flash(send, "Sent");
+            window.setTimeout(function () {
+              if (box.parentNode) box.parentNode.removeChild(box);
+            }, 700);
+          } else {
+            flash(send, "Failed");
+          }
+        }).catch(function () {
+          send.disabled = false;
+          flash(send, "Failed");
+        });
+      };
+
+      send.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        submit();
+      });
+      ta.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) {
+          ev.preventDefault();
+          submit();
+        }
+      });
+
+      box.appendChild(ta);
+      box.appendChild(send);
+      body.appendChild(box);
+      ta.focus();
+    }
+
+    function initMessaging() {
+      var wrap = document.querySelector(".wrap") || document.body;
+      if (wrap && !document.querySelector("[data-msg-bar]")) {
+        wrap.insertBefore(buildBar(), wrap.firstChild);
+      }
+      var cards = taskCards();
+      for (var i = 0; i < cards.length; i++) addTaskButton(cards[i]);
+    }
+  } catch (e) {
+    try { console.warn("plan-canvas messaging failed to load:", e); } catch (_) {}
+  }
+})();
+`;
+
+export const MESSAGING_SCRIPT = `<script>${RAW_MESSAGING_SCRIPT}</script>`;
+
+export const MESSAGING_STYLE = [
+  `<style>`,
+  `.msg-bar{display:flex;gap:8px;align-items:flex-start;margin:0 0 14px;padding:10px 12px;background:var(--panel,#161b22);border:1px solid var(--border,#30363d);border-radius:10px}`,
+  `.msg-input{flex:1;min-width:0;font:inherit;font-size:13px;color:var(--ink,#c9d1d9);background:var(--bg,#0d1117);border:1px solid var(--border,#30363d);border-radius:8px;padding:8px 10px;resize:vertical;line-height:1.4}`,
+  `.msg-input:focus{outline:none;border-color:var(--accent,#58a6ff)}`,
+  `.msg-send{font:inherit;font-size:13px;font-weight:600;color:#fff;background:var(--accent,#238636);border:1px solid var(--accent,#238636);border-radius:8px;padding:8px 16px;cursor:pointer;white-space:nowrap}`,
+  `.msg-send:hover{filter:brightness(1.1)}`,
+  `.msg-send:disabled{opacity:.6;cursor:default}`,
+  `.msg-task-btn{font:inherit;font-size:12px;font-weight:600;color:var(--ink,#c9d1d9);background:var(--chip,#21262d);border:1px solid var(--border,#30363d);border-radius:8px;padding:4px 10px;cursor:pointer}`,
+  `.msg-task-btn:hover{border-color:var(--accent,#58a6ff);color:var(--accent,#58a6ff)}`,
+  `.msg-composer{display:flex;gap:8px;align-items:flex-start;margin-top:10px}`,
+  `</style>`,
+].join("");
+
+export function injectMessaging(html: string): string {
+  const block = `${MESSAGING_STYLE}\n${MESSAGING_SCRIPT}\n`;
+  const marker = "</body>";
+  const idx = html.lastIndexOf(marker);
+  if (idx === -1) return `${html}\n${block}`;
+  return `${html.slice(0, idx)}${block}${html.slice(idx)}`;
+}

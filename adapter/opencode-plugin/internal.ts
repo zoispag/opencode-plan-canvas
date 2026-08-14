@@ -1,6 +1,14 @@
 /// <reference types="node" />
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+  watch,
+} from "node:fs";
+import type { FSWatcher } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import type { Plugin, PluginInput } from "@opencode-ai/plugin";
 
@@ -55,6 +63,8 @@ export interface PluginState {
   child?: SpawnedChild;
   lastPlanPath?: string;
   exitHandlersRegistered?: boolean;
+  outboxWatcher?: OutboxWatcher;
+  outboxDir?: string;
 }
 
 export type OrchestrationOutcome = "ignored" | "nudged" | "spawned" | "skipped";
@@ -196,6 +206,9 @@ function registerExitHandlers(state: PluginState): void {
   state.exitHandlersRegistered = true;
   const killChild = () => {
     try {
+      state.outboxWatcher?.close();
+    } catch {}
+    try {
       state.child?.kill();
     } catch {}
   };
@@ -262,14 +275,286 @@ function isTruthy(value: unknown): boolean {
   return v.length > 0 && v !== "0" && v !== "false" && v !== "no" && v !== "off";
 }
 
+// Structural subset of the opencode SDK client we rely on. Kept minimal and
+// local so the adapter neither imports the SDK at runtime nor couples to its
+// full generated type surface (which shifts across versions).
+interface SessionSummary {
+  id: string;
+  parentID?: string;
+  time?: { created?: number; updated?: number };
+}
+
+interface SessionClient {
+  session: {
+    list: () => Promise<{ data?: SessionSummary[] | null }>;
+    promptAsync: (options: {
+      path: { id: string };
+      body: { parts: Array<{ type: "text"; text: string }> };
+    }) => Promise<unknown>;
+  };
+}
+
+interface OutboxMessage {
+  text: string;
+  taskId?: string;
+  ts?: number;
+}
+
+const OUTBOX_FILE_RE = /^\d+-[0-9a-f]{12}\.json$/;
+
+// Messages older than this on the plugin's first sight are almost certainly
+// left over from an earlier, unrelated session; delivering them into today's
+// session would be confusing, so they are dropped instead of relayed.
+const STALE_MESSAGE_MS = 10 * 60 * 1000;
+
+export function outboxDirFor(
+  eventPath: string,
+  input: Partial<PluginInput> | undefined,
+): string | undefined {
+  const abs = absolutize(eventPath, input);
+  const normalized = abs.replace(/\\/g, "/");
+  const m = normalized.match(/^(.*)\/\.sisyphus\/(?:plans\/[^/]+\.md|boulder\.json)$/);
+  if (!m) return undefined;
+  return join(m[1]!, ".sisyphus", "outbox");
+}
+
+function parseOutboxMessage(raw: string): OutboxMessage | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (parsed === null || typeof parsed !== "object") return undefined;
+  const rec = parsed as Record<string, unknown>;
+  if (typeof rec.text !== "string" || rec.text.trim().length === 0) return undefined;
+  const msg: OutboxMessage = { text: rec.text };
+  if (typeof rec.taskId === "string" && rec.taskId.length > 0) msg.taskId = rec.taskId;
+  if (typeof rec.ts === "number" && Number.isFinite(rec.ts)) msg.ts = rec.ts;
+  return msg;
+}
+
+function composePrompt(message: OutboxMessage): string {
+  if (message.taskId) {
+    return `[plan-canvas] Message about task ${message.taskId}:\n\n${message.text}`;
+  }
+  return `[plan-canvas] Message from the plan canvas:\n\n${message.text}`;
+}
+
+async function mostRecentSessionId(
+  client: SessionClient,
+): Promise<string | undefined> {
+  let sessions: SessionSummary[] | null | undefined;
+  try {
+    const res = await client.session.list();
+    sessions = res.data;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(sessions) || sessions.length === 0) return undefined;
+  const sessionKey = (s: SessionSummary): number =>
+    s.time?.updated ?? s.time?.created ?? 0;
+  const pickNewest = (pool: SessionSummary[]): string | undefined => {
+    let best: SessionSummary | undefined;
+    let bestKey = -1;
+    for (const s of pool) {
+      if (!s || typeof s.id !== "string") continue;
+      const key = sessionKey(s);
+      if (key > bestKey) {
+        bestKey = key;
+        best = s;
+      }
+    }
+    return best?.id;
+  };
+  // A user watching the canvas is in a top-level session; background subagent
+  // sessions (which carry a parentID) are often newer but are the wrong target.
+  const topLevel = sessions.filter((s) => s && !s.parentID);
+  return pickNewest(topLevel.length > 0 ? topLevel : sessions);
+}
+
+async function deliverOutboxFile(
+  filePath: string,
+  client: SessionClient,
+  log: (message: string) => void,
+  now: number = Date.now(),
+): Promise<void> {
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, "utf8");
+  } catch {
+    return;
+  }
+  const message = parseOutboxMessage(raw);
+  if (!message) {
+    // Drop malformed files so they don't wedge the queue on every scan.
+    try {
+      unlinkSync(filePath);
+    } catch {}
+    return;
+  }
+
+  if (message.ts !== undefined && now - message.ts > STALE_MESSAGE_MS) {
+    try {
+      unlinkSync(filePath);
+    } catch {}
+    log(`outbox: dropped stale message ${filePath}`);
+    return;
+  }
+
+  const sessionId = await mostRecentSessionId(client);
+  if (!sessionId) {
+    log(`outbox: no active session; leaving ${filePath} queued`);
+    return;
+  }
+
+  try {
+    await client.session.promptAsync({
+      path: { id: sessionId },
+      body: { parts: [{ type: "text", text: composePrompt(message) }] },
+    });
+  } catch (e) {
+    log(`outbox: promptAsync failed for ${filePath}: ${String(e)}`);
+    return;
+  }
+
+  // The file's presence is the "not yet delivered" flag; removal happens only
+  // on a successful send, giving at-least-once delivery.
+  try {
+    unlinkSync(filePath);
+  } catch {}
+  const scope = message.taskId ? ` [task ${message.taskId}]` : "";
+  log(`outbox: delivered${scope} -> session ${sessionId}`);
+}
+
+async function drainOutbox(
+  dir: string,
+  client: SessionClient,
+  log: (message: string) => void,
+): Promise<void> {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return;
+  }
+  const epochOf = (name: string): number => Number.parseInt(name.split("-")[0]!, 10);
+  const files = names
+    .filter((n) => OUTBOX_FILE_RE.test(n))
+    .sort((a, b) => epochOf(a) - epochOf(b));
+  const now = Date.now();
+  for (const name of files) {
+    await deliverOutboxFile(join(dir, name), client, log, now);
+  }
+}
+
+export interface OutboxWatcher {
+  close: () => void;
+}
+
+export function startOutboxWatcher(
+  dir: string,
+  client: SessionClient,
+  log: (message: string) => void,
+): OutboxWatcher {
+  try {
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  } catch {}
+
+  let closed = false;
+  let draining = false;
+  let pending = false;
+
+  const runDrain = (): void => {
+    if (closed) return;
+    if (draining) {
+      pending = true;
+      return;
+    }
+    draining = true;
+    void drainOutbox(dir, client, log).finally(() => {
+      draining = false;
+      if (pending && !closed) {
+        pending = false;
+        runDrain();
+      }
+    });
+  };
+
+  let watcher: FSWatcher | undefined;
+  try {
+    watcher = watch(dir, () => runDrain());
+    watcher.on("error", () => {});
+  } catch {
+    watcher = undefined;
+  }
+
+  // fs.watch can miss events on some platforms; a slow poll is the safety net.
+  const poll: ReturnType<typeof setInterval> = setInterval(runDrain, 2000);
+  if (typeof (poll as { unref?: () => void }).unref === "function") {
+    (poll as { unref?: () => void }).unref?.();
+  }
+
+  runDrain();
+
+  return {
+    close(): void {
+      closed = true;
+      try {
+        watcher?.close();
+      } catch {}
+      clearInterval(poll);
+    },
+  };
+}
+
+function asSessionClient(input: unknown): SessionClient | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const client = (input as { client?: unknown }).client;
+  if (!client || typeof client !== "object") return undefined;
+  const session = (client as { session?: unknown }).session;
+  if (!session || typeof session !== "object") return undefined;
+  const s = session as Record<string, unknown>;
+  if (typeof s.list !== "function" || typeof s.promptAsync !== "function") {
+    return undefined;
+  }
+  return client as SessionClient;
+}
+
+function maybeStartOutbox(
+  event: OpencodeEvent,
+  input: Partial<PluginInput> | undefined,
+  state: PluginState,
+  log: (message: string) => void,
+): void {
+  if (state.outboxWatcher) return;
+  const client = asSessionClient(input);
+  if (!client) return;
+  const path = extractChangedPath(event);
+  if (path === undefined || !isWatchedPath(path)) return;
+  const dir = outboxDirFor(path, input);
+  if (!dir) return;
+  state.outboxDir = dir;
+  state.outboxWatcher = startOutboxWatcher(dir, client, log);
+}
+
 export function createPlugin(config?: AdapterConfig): Plugin {
   return async (input) => {
     const state: PluginState = { hasSpawned: false };
+    const log = (m: string): void => {
+      try {
+        console.log(`[plan-canvas] ${m}`);
+      } catch {}
+    };
     return {
       event: async ({ event }) => {
+        maybeStartOutbox(event as OpencodeEvent, input, state, log);
         await orchestrateEvent(event as OpencodeEvent, config, input, state);
       },
       dispose: async () => {
+        try {
+          state.outboxWatcher?.close();
+        } catch {}
         try {
           state.child?.kill();
         } catch {}

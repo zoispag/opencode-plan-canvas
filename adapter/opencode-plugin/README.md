@@ -10,7 +10,7 @@ This is an **optional** [opencode](https://opencode.ai) plugin for
 That watcher regenerates the canvas and pushes a live-reload event over SSE all
 on its own — with **zero** dependency on opencode.
 
-This plugin does two things while you work inside opencode:
+This plugin does three things while you work inside opencode:
 
 1. **Auto-spawns the watch server for you (default ON).** When a plan or boulder
    file changes and no server is already listening, the plugin launches
@@ -22,6 +22,11 @@ This plugin does two things while you work inside opencode:
    `fs.watch` notices a beat later. When a server is already up, the plugin sends
    a tiny `POST /refresh` so it re-reads and regenerates immediately (bypassing
    the debounce).
+3. **Relays canvas messages to the agent (when the server runs with
+   `--enable-messaging`).** The canvas can queue user prompts as files under
+   `.sisyphus/outbox/`; the plugin delivers each one into your active opencode
+   session. This only works with the plugin loaded — the watch server alone has
+   no way to reach the agent. See [Message relay](#message-relay) below.
 
 When opencode shuts down, the plugin kills the server it spawned (via the
 `dispose` hook and process-exit handlers), so it never leaves a zombie holding
@@ -51,6 +56,29 @@ it never holds opencode open, and it is killed on opencode exit.
 The `/refresh` endpoint is a no-auth, localhost-only development nudge. It only
 triggers an immediate re-read/regen of the plan the watch server is already
 watching; it carries no payload and cannot write back to any file.
+
+### Message relay
+
+When the watch server runs with `--enable-messaging`, the canvas shows a prompt
+box (and a per-task "send message" button). Each message is written by the
+server as one JSON file under `<root>/.sisyphus/outbox/`. This plugin is what
+turns those files into agent prompts:
+
+- On the first watched plan/boulder event, the plugin starts an outbox watcher
+  on the resolved `.sisyphus/outbox` directory (`fs.watch` plus a slow poll
+  fallback, mirroring the plan watcher).
+- For each queued message it picks the **most recently active** opencode session
+  (via `client.session.list()`, ordered by last-updated time) and forwards the
+  text as a user prompt with `client.session.promptAsync`. Task-scoped messages
+  are prefixed with the task id for context.
+- A message file is deleted **only after a successful send**, so delivery is
+  at-least-once. If no session is available yet, or the send fails, the message
+  stays queued and is retried on the next change/poll. Malformed files are
+  dropped.
+
+The outbox watcher is closed on opencode shutdown (`dispose` + process-exit
+handlers), alongside any spawned server. If the server is not run with
+`--enable-messaging`, no files are ever written and this relay does nothing.
 
 ### Boulder-file resolution
 

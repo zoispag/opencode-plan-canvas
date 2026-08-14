@@ -18,6 +18,7 @@ import {
   startServer,
   type HtmlSnapshot,
 } from "./watch/server";
+import { resolveOutboxDir } from "./watch/outbox";
 
 const HELP_TEXT = `usage: opencode-plan-canvas <plan.md> [--output <file>] [--help] [--version]
        opencode-plan-canvas watch <plan.md> [--port <n>] [--no-open] [--out <file>]
@@ -32,6 +33,8 @@ const HELP_TEXT = `usage: opencode-plan-canvas <plan.md> [--output <file>] [--he
     --no-open            Do not open the browser automatically
     --out <file>         Also write the static (server-free) HTML on each regen
     --enable-actions     STRETCH: enable served-only two-way controls (default OFF)
+    --enable-messaging   STRETCH: enable served-only prompt box that queues messages
+                         for the opencode plugin to relay to the agent (default OFF)
 `;
 
 function printWarnings(warnings: WatchUpdate["warnings"]): void {
@@ -65,6 +68,7 @@ async function runWatch(rest: string[]): Promise<void> {
   let noOpen = false;
   let outFile: string | undefined;
   let enableActions = false;
+  let enableMessaging = false;
 
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i]!;
@@ -82,6 +86,8 @@ async function runWatch(rest: string[]): Promise<void> {
       outFile = rest[++i];
     } else if (arg === "--enable-actions") {
       enableActions = true;
+    } else if (arg === "--enable-messaging") {
+      enableMessaging = true;
     } else if (!arg.startsWith("-")) {
       planFile = arg;
     }
@@ -168,6 +174,8 @@ async function runWatch(rest: string[]): Promise<void> {
     hub.push(lastGeneration);
   };
 
+  const outboxDir = enableMessaging ? resolveOutboxDir(planFile) : undefined;
+
   let server;
   try {
     server = startServer({
@@ -177,6 +185,8 @@ async function runWatch(rest: string[]): Promise<void> {
       onRefresh: forceRefresh,
       enableActions,
       getActions: () => currentActions,
+      enableMessaging,
+      outboxDir,
     });
   } catch (e) {
     handle.close();

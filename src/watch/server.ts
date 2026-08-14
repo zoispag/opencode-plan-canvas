@@ -1,5 +1,10 @@
-import { injectActions, type TaskAction } from "../render/interactivity";
+import {
+  injectActions,
+  injectMessaging,
+  type TaskAction,
+} from "../render/interactivity";
 import { openBrowser, serve } from "../runtime/host";
+import { writeOutboxMessage } from "./outbox";
 
 export interface HtmlSnapshot {
   html: string;
@@ -27,6 +32,8 @@ export interface StartServerOptions {
   getActions?: () => ActionEntry[];
   openUrl?: (url: string) => void;
   log?: (message: string) => void;
+  enableMessaging?: boolean;
+  outboxDir?: string;
 }
 
 export interface RunningServer {
@@ -103,6 +110,8 @@ export function startServer(options: StartServerOptions): RunningServer {
   const getActions = options.getActions;
   const openUrl = options.openUrl ?? defaultOpenUrl;
   const log = options.log ?? ((m: string) => console.log(m));
+  const enableMessaging = options.enableMessaging === true && !!options.outboxDir;
+  const outboxDir = options.outboxDir;
 
   const server = serve({
     port,
@@ -117,6 +126,9 @@ export function startServer(options: StartServerOptions): RunningServer {
         if (enableActions && getActions) {
           const actions: TaskAction[] = getActions();
           body = injectActions(body, actions);
+        }
+        if (enableMessaging) {
+          body = injectMessaging(body);
         }
         return new Response(body, {
           headers: {
@@ -144,6 +156,10 @@ export function startServer(options: StartServerOptions): RunningServer {
 
       if (enableActions && path === "/action" && req.method === "POST") {
         return handleAction(req, getActions, openUrl, log);
+      }
+
+      if (enableMessaging && path === "/prompt" && req.method === "POST") {
+        return handlePrompt(req, outboxDir, log);
       }
 
       return new Response("not found", {
@@ -227,6 +243,44 @@ async function handleAction(
     return jsonResponse(500, { error: "failed to open url" });
   }
   return jsonResponse(200, { ok: true, opened: target });
+}
+
+async function handlePrompt(
+  req: Request,
+  outboxDir: string | undefined,
+  log: (message: string) => void,
+): Promise<Response> {
+  if (!outboxDir) {
+    return jsonResponse(500, { error: "messaging not configured" });
+  }
+
+  let payload: unknown;
+  try {
+    payload = await req.json();
+  } catch {
+    log(`prompt: rejected (invalid JSON body)`);
+    return jsonResponse(400, { error: "invalid JSON body" });
+  }
+
+  if (typeof payload !== "object" || payload === null) {
+    log(`prompt: rejected (body is not an object)`);
+    return jsonResponse(400, { error: "body must be an object" });
+  }
+
+  const record = payload as Record<string, unknown>;
+  const result = writeOutboxMessage(outboxDir, {
+    text: record.text,
+    taskId: record.taskId,
+  });
+
+  if (!result.ok) {
+    log(`prompt: rejected (${result.error ?? "unknown"})`);
+    return jsonResponse(400, { error: result.error ?? "invalid message" });
+  }
+
+  const scope = typeof record.taskId === "string" ? ` [task ${record.taskId}]` : "";
+  log(`prompt: queued${scope} -> ${result.path}`);
+  return jsonResponse(202, { ok: true });
 }
 
 function sseResponse(req: Request, events: SubscribeApi): Response {
