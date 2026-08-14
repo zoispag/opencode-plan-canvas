@@ -102,10 +102,29 @@ always nudges an already-running server regardless.
   `watch <planPath> --port <port>` (and any `spawnExtraArgs`) to it.
 - `spawnExtraArgs?: string[]` — extra flags appended after the plan path (e.g.
   `["--no-open"]`).
+- `enableMessaging?: boolean` — spawn the server with `--enable-messaging` so the
+  canvas shows the prompt box and this plugin relays your messages to the agent.
+  Default **true**. Set to `false` to spawn a read-only canvas with no prompt UI.
 - `spawnImpl?: (cmd: string[]) => { kill: () => void }` — injectable spawner
   (mainly for tests). The default uses `child_process.spawn` detached with
   `stdio: "ignore"` + `unref()`, and its `kill()` terminates the process group.
 - `fetchImpl?: typeof fetch` — injectable fetch (mainly for tests).
+
+### Opt out of messaging
+
+Messaging is **on by default**: the plugin spawns the canvas with
+`--enable-messaging`, so the prompt box appears and queued messages are relayed
+to your active session. To spawn a read-only canvas instead, set the environment
+variable `OPENCODE_PLAN_CANVAS_NO_MESSAGING` to a truthy value (env beats
+config):
+
+```sh
+OPENCODE_PLAN_CANVAS_NO_MESSAGING=1 opencode
+```
+
+Or set `enableMessaging: false` in `createPlugin({ enableMessaging: false })`.
+Note this only affects servers the plugin **spawns** — if a server is already
+running, the plugin just nudges it and does not change its flags.
 
 ### Opt out of auto-spawn
 

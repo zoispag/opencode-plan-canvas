@@ -44,6 +44,8 @@ export interface AdapterConfig {
   spawnExtraArgs?: string[];
   /** Injectable spawner for tests. Default uses detached child_process.spawn + unref. */
   spawnImpl?: (cmd: string[]) => SpawnedChild;
+  /** Spawn the server with --enable-messaging so the canvas can prompt the agent. Default: true. */
+  enableMessaging?: boolean;
 }
 
 // Loose, testable stand-in for opencode's fully-typed `Event` union. Kept local
@@ -258,7 +260,19 @@ export async function orchestrateEvent(
     const port = config?.port ?? DEFAULT_REFRESH_PORT;
     const base = config?.spawnCommand ?? DEFAULT_SPAWN_COMMAND;
     const extra = config?.spawnExtraArgs ?? [];
-    const cmd = [...base, "watch", planPath, "--port", String(port), ...extra];
+    // Env opt-out beats config, mirroring OPENCODE_PLAN_CANVAS_NO_SPAWN.
+    const envNoMessaging = isTruthy(process.env.OPENCODE_PLAN_CANVAS_NO_MESSAGING);
+    const enableMessaging = envNoMessaging ? false : config?.enableMessaging ?? true;
+    const messagingFlag = enableMessaging ? ["--enable-messaging"] : [];
+    const cmd = [
+      ...base,
+      "watch",
+      planPath,
+      "--port",
+      String(port),
+      ...messagingFlag,
+      ...extra,
+    ];
 
     const spawner = config?.spawnImpl ?? defaultSpawnImpl;
     state.child = spawner(cmd);

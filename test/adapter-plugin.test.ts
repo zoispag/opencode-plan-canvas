@@ -366,8 +366,63 @@ describe("orchestrateEvent auto-spawn", () => {
     expect(portIdx).toBeGreaterThan(-1);
     expect(cmd[portIdx + 1]).toBe("4499");
     expect(cmd).toContain("--no-open");
+    expect(cmd).toContain("--enable-messaging");
     expect(state.hasSpawned).toBe(true);
     expect(state.child).toBeDefined();
+  });
+
+  test("spawn command enables messaging by default", async () => {
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    const config: AdapterConfig = { autoSpawn: true, fetchImpl: NUDGE_FAIL, spawnImpl };
+    await orchestrateEvent(
+      planEvent("/repo/.sisyphus/plans/x.md"),
+      config,
+      inputFor("/repo"),
+      freshState(),
+    );
+    expect(calls[0]!).toContain("--enable-messaging");
+  });
+
+  test("enableMessaging=false omits the flag", async () => {
+    const calls: string[][] = [];
+    const { spawnImpl } = recordingSpawner(calls);
+    const config: AdapterConfig = {
+      autoSpawn: true,
+      fetchImpl: NUDGE_FAIL,
+      spawnImpl,
+      enableMessaging: false,
+    };
+    await orchestrateEvent(
+      planEvent("/repo/.sisyphus/plans/x.md"),
+      config,
+      inputFor("/repo"),
+      freshState(),
+    );
+    expect(calls[0]!).not.toContain("--enable-messaging");
+  });
+
+  test("OPENCODE_PLAN_CANVAS_NO_MESSAGING beats enableMessaging=true", async () => {
+    process.env.OPENCODE_PLAN_CANVAS_NO_MESSAGING = "1";
+    try {
+      const calls: string[][] = [];
+      const { spawnImpl } = recordingSpawner(calls);
+      const config: AdapterConfig = {
+        autoSpawn: true,
+        fetchImpl: NUDGE_FAIL,
+        spawnImpl,
+        enableMessaging: true,
+      };
+      await orchestrateEvent(
+        planEvent("/repo/.sisyphus/plans/x.md"),
+        config,
+        inputFor("/repo"),
+        freshState(),
+      );
+      expect(calls[0]!).not.toContain("--enable-messaging");
+    } finally {
+      delete process.env.OPENCODE_PLAN_CANVAS_NO_MESSAGING;
+    }
   });
 
   test("burst of 5 rapid events + nudge always fails -> spawns exactly once", async () => {
