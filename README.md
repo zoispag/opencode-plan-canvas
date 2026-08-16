@@ -16,6 +16,29 @@ CDN, and no build step.
 The generator is deterministic: the same plan produces byte-identical HTML on
 every run.
 
+## Screenshots
+
+The canvas below is generated from the bundled synthetic plan
+(`test/fixtures/golden-plan.md`) — hero, critical path, execution waves with
+category badges, and the reverse "message the agent" prompt bar (shown in watch
+mode with `--enable-messaging`). It ships both dark and light themes:
+
+![opencode-plan-canvas — dark and light themes, showing the hero, critical path, waves, and the message-the-agent prompt bar](docs/assets/canvas-split.webp)
+
+<details>
+<summary>Full page — dark theme</summary>
+
+![Full canvas in dark theme](docs/assets/canvas-full-dark.webp)
+
+</details>
+
+<details>
+<summary>Full page — light theme</summary>
+
+![Full canvas in light theme](docs/assets/canvas-full-light.webp)
+
+</details>
+
 ## Install
 
 ### From npm (Node or Bun)
