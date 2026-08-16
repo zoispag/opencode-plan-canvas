@@ -1,6 +1,11 @@
 import type { Plan, Task, Wave, WaveEntry, TaskField, ParseWarning } from "../model";
 import { escapeHtml, renderInline } from "../text";
-import { buildTaskLookup, isFinalEntry, matchEntryToTask } from "../parse/waves";
+import {
+  buildTaskLookup,
+  finalAnchorId,
+  matchEntryToTask,
+  resolveFinalId,
+} from "../parse/waves";
 
 const WAVE_COLORS = ["w1", "w2", "w3", "w4", "wf"] as const;
 
@@ -81,8 +86,13 @@ function renderField(field: TaskField): string {
   )}</div></div>`;
 }
 
-function renderMeta(task: Task | undefined): string {
+function renderMeta(entry: WaveEntry, task: Task | undefined): string {
   const parts: string[] = [];
+  if (entry.category) {
+    parts.push(
+      `<span class="${categoryClass(entry.category)}">${escapeHtml(entry.category)}</span>`,
+    );
+  }
   if (task && task.state.badge) {
     parts.push(`<span class="badge ${task.state.badge}">${task.state.badge}</span>`);
   }
@@ -93,20 +103,29 @@ function renderMeta(task: Task | undefined): string {
   return `<div class="tmeta">${parts.join("")}</div>`;
 }
 
-function renderCard(entry: WaveEntry, task: Task | undefined): string {
+function renderCard(
+  entry: WaveEntry,
+  task: Task | undefined,
+  finalHref?: string,
+): string {
   const cls = entry.checked ? "tcard shipped" : "tcard";
   const tid = entry.checked ? `\u2713 ${entry.id}` : entry.id;
-  const meta = renderMeta(task);
+  const meta = renderMeta(entry, task);
+  const titleHtml = renderInline(entry.title);
+  const title = finalHref
+    ? `<a class="tlink" href="${escapeHtml(finalHref)}">${titleHtml}</a>`
+    : titleHtml;
   const row =
     `<div class="trow"><span class="tid">${escapeHtml(tid)}</span>` +
-    `<span class="ttitle">${renderInline(entry.title)}</span></div>` +
+    `<span class="ttitle">${title}</span></div>` +
     (meta ? `\n${meta}` : "");
 
   const fields = task ? task.fields : [];
   if (fields.length === 0) {
     // No body content: render a non-interactive static row rather than an empty
     // <details> that would show a disclosure triangle and expand to nothing.
-    return `<div class="${cls}">\n${row}\n</div>`;
+    const linkCls = finalHref ? `${cls} tcard-linked` : cls;
+    return `<div class="${linkCls}">\n${row}\n</div>`;
   }
   const body = fields.map(renderField).join("");
   return (
@@ -122,14 +141,20 @@ function renderWaveColumn(wave: Wave, color: string, ctx: RenderContext): string
   const cards: string[] = [];
   for (const entry of wave.entries) {
     const task = matchEntryToTask(entry, ctx.tasksById, ctx.finalIds);
+    let finalHref: string | undefined;
     if (task) {
       ctx.paired.add(task);
-    } else if (!isFinalEntry(entry, ctx.finalIds)) {
-      ctx.warnings.push({
-        message: `Wave "${wave.name}" entry ${entry.id} has no matching task`,
-      });
+    } else {
+      const finalId = resolveFinalId(entry, ctx.finalIds);
+      if (finalId) {
+        finalHref = `#${finalAnchorId(finalId)}`;
+      } else {
+        ctx.warnings.push({
+          message: `Wave "${wave.name}" entry ${entry.id} has no matching task`,
+        });
+      }
     }
-    cards.push(renderCard(entry, task));
+    cards.push(renderCard(entry, task, finalHref));
   }
 
   return (

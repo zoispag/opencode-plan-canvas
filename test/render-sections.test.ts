@@ -234,7 +234,7 @@ describe("renderFinal", () => {
     const html = renderFinal(plan);
     expect(html).toContain(`<section id="final">`);
     expect(html).toContain(`<div class="fwave">`);
-    expect(html).toContain(`<div class="fcard">`);
+    expect(html).toContain(`<div class="fcard" id="final-f1">`);
     expect(html).toContain(`<div class="h">`);
     expect(html).toContain(`<b>F1 \u00b7 Plan Compliance Audit</b>`);
     expect(html).toContain(`<span class="badge shipped">done</span>`);

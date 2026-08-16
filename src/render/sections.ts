@@ -1,5 +1,6 @@
 import type { Plan, Decision, FinalTask, NamedSection } from "../model";
 import { escapeHtml, renderInline } from "../text";
+import { finalAnchorId } from "../parse/waves";
 
 const KNOWN_CATEGORIES = new Set([
   "deep",
@@ -207,7 +208,7 @@ export function renderFinal(plan: Plan): string {
 
   const cards = plan.finalTasks.map((ft) => {
     const parts: string[] = [];
-    parts.push(`<div class="fcard">`);
+    parts.push(`<div class="fcard" id="${escapeHtml(finalAnchorId(ft.id))}">`);
     parts.push(finalCardHead(ft));
     parts.push(`<div class="muted">${renderInline(ft.description)}</div>`);
     if (ft.output && ft.output.trim().length > 0) {

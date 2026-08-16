@@ -580,10 +580,25 @@ const RAW_MESSAGING_SCRIPT = String.raw`
       });
     }
 
+    var SEND_ICON = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 1.5 7 9"/><path d="M14.5 1.5 10 14.5 7 9 1.5 6z"/></svg>';
+
+    function makeSendButton(label) {
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "msg-send";
+      btn.innerHTML = SEND_ICON;
+      var lbl = document.createElement("span");
+      lbl.className = "msg-send-lbl";
+      lbl.textContent = label;
+      btn.appendChild(lbl);
+      return btn;
+    }
+
     function flash(el, text) {
-      var old = el.textContent;
-      el.textContent = text;
-      window.setTimeout(function () { el.textContent = old; }, 1400);
+      var target = el.querySelector(".msg-send-lbl") || el;
+      var old = target.textContent;
+      target.textContent = text;
+      window.setTimeout(function () { target.textContent = old; }, 1400);
     }
 
     function buildBar() {
@@ -597,10 +612,7 @@ const RAW_MESSAGING_SCRIPT = String.raw`
       input.setAttribute("placeholder", "Message the agent\u2026 (e.g. add a task to do xyz)");
       input.setAttribute("maxlength", String(MAX_LEN));
 
-      var send = document.createElement("button");
-      send.type = "button";
-      send.className = "msg-send";
-      send.textContent = "Send";
+      var send = makeSendButton("Send");
 
       var submit = function () {
         var text = (input.value || "").trim();
@@ -654,7 +666,8 @@ const RAW_MESSAGING_SCRIPT = String.raw`
       btn.type = "button";
       btn.className = "msg-task-btn";
       btn.setAttribute("data-msg-task", id);
-      btn.textContent = "send message";
+      btn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 1.5 7 9"/><path d="M14.5 1.5 10 14.5 7 9 1.5 6z"/></svg>';
+      btn.appendChild(document.createTextNode("send message"));
       btn.addEventListener("click", function (ev) {
         ev.preventDefault();
         ev.stopPropagation();
@@ -691,10 +704,7 @@ const RAW_MESSAGING_SCRIPT = String.raw`
       ta.setAttribute("maxlength", String(MAX_LEN));
       ta.setAttribute("placeholder", "Message about task " + id + "\u2026");
 
-      var send = document.createElement("button");
-      send.type = "button";
-      send.className = "msg-send";
-      send.textContent = "Send";
+      var send = makeSendButton("Send");
 
       var submit = function () {
         var text = (ta.value || "").trim();
@@ -752,14 +762,16 @@ export const MESSAGING_SCRIPT = `<script>${RAW_MESSAGING_SCRIPT}</script>`;
 
 export const MESSAGING_STYLE = [
   `<style>`,
-  `.msg-bar{display:flex;gap:8px;align-items:flex-start;margin:0 0 14px;padding:10px 12px;background:var(--panel,#161b22);border:1px solid var(--border,#30363d);border-radius:10px}`,
+  `.msg-bar{position:sticky;top:0;z-index:30;display:flex;gap:8px;align-items:flex-start;margin:0 0 14px;padding:10px 12px;background:var(--panel,#161b22);border:1px solid var(--border,#30363d);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.35)}`,
   `.msg-input{flex:1;min-width:0;font:inherit;font-size:13px;color:var(--ink,#c9d1d9);background:var(--bg,#0d1117);border:1px solid var(--border,#30363d);border-radius:8px;padding:8px 10px;resize:vertical;line-height:1.4}`,
   `.msg-input:focus{outline:none;border-color:var(--accent,#58a6ff)}`,
-  `.msg-send{font:inherit;font-size:13px;font-weight:600;color:#fff;background:var(--accent,#238636);border:1px solid var(--accent,#238636);border-radius:8px;padding:8px 16px;cursor:pointer;white-space:nowrap}`,
-  `.msg-send:hover{filter:brightness(1.1)}`,
-  `.msg-send:disabled{opacity:.6;cursor:default}`,
-  `.msg-task-btn{font:inherit;font-size:12px;font-weight:600;color:var(--ink,#c9d1d9);background:var(--chip,#21262d);border:1px solid var(--border,#30363d);border-radius:8px;padding:4px 10px;cursor:pointer}`,
-  `.msg-task-btn:hover{border-color:var(--accent,#58a6ff);color:var(--accent,#58a6ff)}`,
+  `.msg-send{display:inline-flex;align-items:center;justify-content:center;gap:6px;font:inherit;font-size:13px;font-weight:600;color:var(--ink,#e6edf3);background:var(--chip,#21262d);border:1px solid var(--border,#30363d);border-radius:8px;padding:8px 16px;cursor:pointer;white-space:nowrap;transition:border-color .12s ease,color .12s ease,background .12s ease}`,
+  `.msg-send svg{width:12px;height:12px;flex:none;opacity:.85}`,
+  `.msg-send:hover{border-color:var(--accent,#58a6ff);color:var(--accent,#58a6ff);background:rgba(88,166,255,.08)}`,
+  `.msg-send:disabled{opacity:.5;cursor:default}`,
+  `.msg-task-btn{display:flex;flex-basis:100%;width:100%;align-items:center;justify-content:center;gap:6px;margin-top:8px;font:inherit;font-size:12px;font-weight:600;color:var(--muted,#9198a1);background:transparent;border:1px solid transparent;border-radius:8px;padding:7px 10px;cursor:pointer;transition:border-color .12s ease,color .12s ease,background .12s ease}`,
+  `.msg-task-btn svg{width:12px;height:12px;flex:none;opacity:.85}`,
+  `.msg-task-btn:hover{color:var(--accent,#58a6ff);border-color:var(--accent,#58a6ff);background:rgba(88,166,255,.08)}`,
   `.msg-composer{display:flex;gap:8px;align-items:flex-start;margin-top:10px}`,
   `</style>`,
 ].join("");

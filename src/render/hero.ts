@@ -3,7 +3,7 @@ import { escapeHtml, renderInline } from "../text";
 
 const MIDDLE_DOT = "\u00b7";
 
-const META_LABELS = ["Estimated Effort", "Parallel Execution", "Critical Path"];
+const META_LABELS = ["Estimated Effort", "Parallel Execution"];
 
 function findTldr(plan: Plan, label: string): TldrEntry | undefined {
   return plan.tldr.find((e) => e.label === label);

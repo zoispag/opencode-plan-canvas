@@ -326,7 +326,9 @@ describe("renderWaves normalized reconciliation (T1 <-> task 1)", () => {
       ],
     });
     const { html, warnings } = renderWaves(plan);
-    expect(html).toContain('<span class="ttitle">Plan audit</span>');
+    expect(html).toContain(
+      '<span class="ttitle"><a class="tlink" href="#final-f1">Plan audit</a></span>',
+    );
     expect(warnings.some((w) => w.message.includes("F1"))).toBe(false);
     expect(html).toContain("<span>Unassigned</span>");
     expect(html).toContain('<span class="ttitle">Rename</span>');
@@ -407,5 +409,91 @@ describe("renderWaves section structure", () => {
     const { html } = renderWaves(plan);
     const colors = [...html.matchAll(/<div class="wave ([^"]+)"/g)].map((m) => m[1]);
     expect(colors).toEqual(["w1", "wf", "w2"]);
+  });
+});
+
+describe("renderWaves entry category badge", () => {
+  test("wave entry category renders as a colored .cat badge", () => {
+    const plan = basePlan({
+      waves: [
+        {
+          name: "Wave 1",
+          entries: [{ id: "A1", checked: false, title: "Do it", category: "quick" }],
+        },
+      ],
+      tasks: [{ id: "A1", checked: false, title: "Do it", state: {}, fields: [] }],
+    });
+    const { html } = renderWaves(plan);
+    expect(html).toContain('<span class="cat quick">quick</span>');
+    expect(html).not.toContain("[quick]");
+  });
+
+  test("unknown category falls back to cat other", () => {
+    const plan = basePlan({
+      waves: [
+        {
+          name: "Wave 1",
+          entries: [
+            { id: "A1", checked: false, title: "X", category: "visual-engineering" },
+          ],
+        },
+      ],
+      tasks: [{ id: "A1", checked: false, title: "X", state: {}, fields: [] }],
+    });
+    const { html } = renderWaves(plan);
+    expect(html).toContain('<span class="cat other">visual-engineering</span>');
+  });
+
+  test("entry without a category emits no cat badge", () => {
+    const plan = basePlan({
+      waves: [{ name: "Wave 1", entries: [{ id: "A1", checked: false, title: "X" }] }],
+      tasks: [{ id: "A1", checked: false, title: "X", state: {}, fields: [] }],
+    });
+    const { html } = renderWaves(plan);
+    expect(html).not.toContain('class="cat');
+  });
+});
+
+describe("renderWaves final-entry linking to #final", () => {
+  test("a final (F) wave entry links its title to the #final anchor", () => {
+    const plan = basePlan({
+      waves: [
+        {
+          name: "Wave FINAL",
+          entries: [{ id: "F1", checked: false, title: "Plan compliance audit" }],
+        },
+      ],
+      finalTasks: [
+        { id: "F1", checked: false, title: "Plan Compliance Audit", description: "" },
+      ],
+    });
+    const { html } = renderWaves(plan);
+    expect(html).toContain('<a class="tlink" href="#final-f1">');
+    expect(html).toContain("tcard-linked");
+  });
+
+  test("verbose 'Task F1' entry also links to #final-f1", () => {
+    const plan = basePlan({
+      waves: [
+        {
+          name: "Wave FINAL",
+          entries: [{ id: "Task F1", checked: false, title: "Plan compliance audit" }],
+        },
+      ],
+      finalTasks: [
+        { id: "F1", checked: false, title: "Plan Compliance Audit", description: "" },
+      ],
+    });
+    const { html } = renderWaves(plan);
+    expect(html).toContain('href="#final-f1"');
+  });
+
+  test("non-final entries do not get a tlink", () => {
+    const plan = basePlan({
+      waves: [{ name: "Wave 1", entries: [{ id: "A1", checked: false, title: "X" }] }],
+      tasks: [{ id: "A1", checked: false, title: "X", state: {}, fields: [] }],
+    });
+    const { html } = renderWaves(plan);
+    expect(html).not.toContain("tlink");
   });
 });

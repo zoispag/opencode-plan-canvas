@@ -27,8 +27,12 @@ describe("renderHero", () => {
     expect(h).toContain(`<div class="metagrid">`);
     expect(h).toContain(`<div class="l">Estimated Effort</div>`);
     expect(h).toContain(`<div class="l">Parallel Execution</div>`);
-    expect(h).toContain(`<div class="l">Critical Path</div>`);
     expect(h).toContain(`<div class="l">Progress</div>`);
+  });
+
+  test("hero omits the Critical Path tile (shown in its own section instead)", () => {
+    const h = renderHero(fixturePlan);
+    expect(h).not.toContain(`<div class="l">Critical Path</div>`);
   });
 
   test("kicker carries derived task progress", () => {

@@ -116,6 +116,7 @@ export interface WaveEntry {
   checked: boolean;
   title: string;
   note?: string;
+  category?: string;
 }
 
 /**

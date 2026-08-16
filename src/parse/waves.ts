@@ -23,10 +23,13 @@ import { scanLines } from "./core";
  * matching logic and the two modules cannot drift.
  */
 const NORMALIZE_RE = /^([TF])(\d+[a-z]?)$/;
-const TASK_ID_RE = /^Task\s+(\d+[a-z]?)$/i;
+const TASK_ID_RE = /^Task\s+(F?)(\d+[a-z]?)$/i;
 export function normalizeEntryId(id: string): string {
   const taskMatch = TASK_ID_RE.exec(id);
-  if (taskMatch) return taskMatch[1]!;
+  if (taskMatch) {
+    const prefix = taskMatch[1]!.toUpperCase();
+    return `${prefix}${taskMatch[2]!}`;
+  }
   const m = NORMALIZE_RE.exec(id);
   return m ? m[2]! : id;
 }
@@ -43,10 +46,26 @@ export function buildTaskLookup(tasks: Task[]): Map<string, Task> {
   return lookup;
 }
 
+export function finalAnchorId(id: string): string {
+  const slug = id.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `final-${slug}`;
+}
+
 const FINAL_ID_RE = /^F\d+[a-z]?$/;
 export function isFinalEntry(entry: WaveEntry, finalIds: Set<string>): boolean {
-  if (!FINAL_ID_RE.test(entry.id)) return false;
-  return finalIds.has(entry.id) || finalIds.has(normalizeEntryId(entry.id));
+  return resolveFinalId(entry, finalIds) !== undefined;
+}
+
+// The F-id (e.g. "F1") a wave entry maps to, or undefined if it is not a final
+// entry. Both `F1` and the verbose `Task F1` forms resolve to `F1`.
+export function resolveFinalId(
+  entry: WaveEntry,
+  finalIds: Set<string>,
+): string | undefined {
+  if (FINAL_ID_RE.test(entry.id) && finalIds.has(entry.id)) return entry.id;
+  const normalized = normalizeEntryId(entry.id);
+  if (FINAL_ID_RE.test(normalized) && finalIds.has(normalized)) return normalized;
+  return undefined;
 }
 
 // A Final Verification Wave entry (F1..Fn) belongs to `finalTasks`, never the
@@ -76,9 +95,10 @@ export interface ReconcileResult {
 const FENCE_RE = /^[ \t]*(`{3,}|~{3,})/;
 const WAVE_HEADER_RE = /^Wave\b(.*):\s*$/;
 const GLYPH_RE = /^[\s│]*(?:├──|└──)?\s*/;
-const ENTRY_RE = /^(Task\s+\d+[a-z]?|[A-Za-z0-9][A-Za-z0-9-]*):\s*(.*)$/i;
+const ENTRY_RE = /^(Task\s+F?\d+[a-z]?|[A-Za-z0-9][A-Za-z0-9-]*):\s*(.*)$/i;
 const CHECKBOX_RE = /^\[( |x|X)\]\s*(.*)$/;
 const TRAILING_NOTE_RE = /\s*\(([^()]*)\)\s*$/;
+const TRAILING_CATEGORY_RE = /\s*\[([A-Za-z][A-Za-z0-9-]*)\]\s*$/;
 const CRITICAL_PATH_RE = /^Critical Path:\s*(.*)$/i;
 
 function stripWaveAnnotations(s: string): string {
@@ -120,6 +140,14 @@ export function parseEntry(rawLine: string): WaveEntry | null {
   }
 
   let title = remainder.trim();
+
+  let category: string | undefined;
+  const categoryMatch = TRAILING_CATEGORY_RE.exec(title);
+  if (categoryMatch) {
+    category = categoryMatch[1]!.trim();
+    title = title.slice(0, categoryMatch.index).trim();
+  }
+
   let note: string | undefined;
   const noteMatch = TRAILING_NOTE_RE.exec(title);
   if (noteMatch) {
@@ -129,6 +157,7 @@ export function parseEntry(rawLine: string): WaveEntry | null {
 
   const entry: WaveEntry = { id, checked, title };
   if (note !== undefined && note.length > 0) entry.note = note;
+  if (category !== undefined && category.length > 0) entry.category = category;
   return entry;
 }
 

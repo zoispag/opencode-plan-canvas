@@ -152,10 +152,11 @@ describe("acceptance: structural invariants", () => {
     const html = generateGolden();
     const shipped = countOccurrences(html, `class="tcard shipped"`);
     const plain = countOccurrences(html, `class="tcard">`);
+    const linked = countOccurrences(html, `class="tcard tcard-linked">`);
     const inprogress = countOccurrences(html, `class="tcard inprogress"`);
     expect(shipped).toBe(checkedEntries);
-    expect(plain + inprogress).toBe(uncheckedEntries);
-    expect(shipped + plain + inprogress).toBe(countTcards(html));
+    expect(plain + linked + inprogress).toBe(uncheckedEntries);
+    expect(shipped + plain + linked + inprogress).toBe(countTcards(html));
   });
 
   it("marks exactly one .inprogress card (first unchecked, server-side)", () => {

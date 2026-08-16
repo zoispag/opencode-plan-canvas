@@ -3,7 +3,14 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { normalizeSource, splitSections } from "../src/parse/core";
 import type { RawSection } from "../src/parse/core";
-import { normalizeEntryId, parseEntry, parseWaves, reconcile } from "../src/parse/waves";
+import {
+  finalAnchorId,
+  isFinalEntry,
+  normalizeEntryId,
+  parseEntry,
+  parseWaves,
+  reconcile,
+} from "../src/parse/waves";
 import type { FinalTask, Task, Wave } from "../src/model";
 
 const fixturePath = join(import.meta.dir, "fixtures", "golden-plan.md");
@@ -226,6 +233,13 @@ describe("normalizeEntryId — T/F prefix stripping", () => {
     expect(normalizeEntryId("Task 12")).toBe("12");
   });
 
+  test("verbose 'Task Fn' final ids normalize to the bare F-id", () => {
+    expect(normalizeEntryId("Task F1")).toBe("F1");
+    expect(normalizeEntryId("Task F4")).toBe("F4");
+    expect(normalizeEntryId("task f2")).toBe("F2");
+    expect(normalizeEntryId("Task F3b")).toBe("F3b");
+  });
+
   test("bare 'Task' with no number is unchanged", () => {
     expect(normalizeEntryId("Task")).toBe("Task");
   });
@@ -236,7 +250,8 @@ describe("parseEntry — 'Task N' wave-entry convention (the reported bug)", () 
     const entry = parseEntry("├── Task 1: Branch [quick]");
     expect(entry).not.toBeNull();
     expect(entry!.id).toBe("Task 1");
-    expect(entry!.title.length).toBeGreaterThan(0);
+    expect(entry!.title).toBe("Branch");
+    expect(entry!.category).toBe("quick");
     expect(entry!.checked).toBe(false);
   });
 
@@ -244,7 +259,8 @@ describe("parseEntry — 'Task N' wave-entry convention (the reported bug)", () 
     const entry = parseEntry("└── Task 2:  IncompleteSnapshotException [quick]");
     expect(entry).not.toBeNull();
     expect(entry!.id).toBe("Task 2");
-    expect(entry!.title.length).toBeGreaterThan(0);
+    expect(entry!.title).toBe("IncompleteSnapshotException");
+    expect(entry!.category).toBe("quick");
   });
 
   test("'Task 12b' suffix id is captured", () => {
@@ -257,6 +273,32 @@ describe("parseEntry — 'Task N' wave-entry convention (the reported bug)", () 
     expect(parseEntry("├── T1: something")!.id).toBe("T1");
     expect(parseEntry("1: bare")!.id).toBe("1");
     expect(parseEntry("T-WIDGET-CORE: x")!.id).toBe("T-WIDGET-CORE");
+  });
+
+  test("'Task F1' verbose-final form parses (was dropped before)", () => {
+    const entry = parseEntry("├── Task F1: Plan compliance audit (oracle)");
+    expect(entry).not.toBeNull();
+    expect(entry!.id).toBe("Task F1");
+    expect(entry!.title).toBe("Plan compliance audit");
+    expect(entry!.note).toBe("oracle");
+  });
+
+  test("'Task F1' is recognized as a final entry via its normalized id", () => {
+    const entry = parseEntry("└── Task F4: Scope fidelity check (deep)")!;
+    const finalIds = new Set(["F1", "F2", "F3", "F4"]);
+    expect(isFinalEntry(entry, finalIds)).toBe(true);
+    expect(normalizeEntryId(entry.id)).toBe("F4");
+  });
+});
+
+describe("finalAnchorId", () => {
+  test("slugifies F-ids to a stable #final anchor", () => {
+    expect(finalAnchorId("F1")).toBe("final-f1");
+    expect(finalAnchorId("F12b")).toBe("final-f12b");
+  });
+
+  test("'Task F1' normalizes then slugifies to the same anchor as 'F1'", () => {
+    expect(finalAnchorId(normalizeEntryId("Task F1"))).toBe(finalAnchorId("F1"));
   });
 });
 

@@ -25,6 +25,19 @@ export const EXTENSION_CSS = `
   /* Neutral gray badge for unknown/unmapped agent categories (fallback) */
   .cat.other{background:var(--chip);color:var(--muted);border-color:var(--border)}
 
+  /* Final-wave cards link to their detailed #final card. */
+  .tcard-linked{cursor:pointer}
+  .tcard-linked:hover{border-color:var(--accent)}
+  a.tlink{color:inherit;text-decoration:none}
+  a.tlink:hover{color:var(--accent);text-decoration:none}
+  .tcard-linked:hover a.tlink{color:var(--accent)}
+
+  /* Inline <code> gets a GitHub-style red-on-gray chip; <pre>/.qa blocks opt out. */
+  code{background:var(--panel2);color:var(--danger);border:1px solid var(--border);border-radius:5px;padding:.5px 5px;font-size:12.5px}
+  pre code,.qa code{background:none;color:inherit;border:0;border-radius:0;padding:0;font-size:inherit}
+  .tbody code{background:var(--panel2);color:var(--danger)}
+  :root[data-theme="light"] code{background:#eff1f3;color:var(--danger)}
+
   /* v2 read-only interactivity (progressive enhancement, injected inline) */
   .controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:0 0 22px;padding:14px 16px;background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
   .controls[hidden]{display:none}
