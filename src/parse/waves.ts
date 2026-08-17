@@ -34,6 +34,20 @@ export function normalizeEntryId(id: string): string {
   return m ? m[2]! : id;
 }
 
+// Like normalizeEntryId but PRESERVES a leading F (F1 stays "F1", not "1"). Used
+// for dependency ids so a `depends: F1` reference targets final entry F1 and does
+// not silently collide with numbered entry `1` (normalizeEntryId strips the F).
+const DEP_FINAL_RE = /^([Ff])(\d+[a-z]?)$/;
+const DEP_TASK_FINAL_RE = /^Task\s+([Ff])(\d+[a-z]?)$/i;
+export function depKey(token: string): string {
+  const t = token.trim();
+  const taskFinal = DEP_TASK_FINAL_RE.exec(t);
+  if (taskFinal) return `F${taskFinal[2]!}`;
+  const final = DEP_FINAL_RE.exec(t);
+  if (final) return `F${final[2]!}`;
+  return normalizeEntryId(t);
+}
+
 export function buildTaskLookup(tasks: Task[]): Map<string, Task> {
   const lookup = new Map<string, Task>();
   for (const t of tasks) {
@@ -100,6 +114,26 @@ const CHECKBOX_RE = /^\[( |x|X)\]\s*(.*)$/;
 const TRAILING_NOTE_RE = /\s*\(([^()]*)\)\s*$/;
 const TRAILING_CATEGORY_RE = /\s*\[([A-Za-z][A-Za-z0-9-]*)\]\s*$/;
 const CRITICAL_PATH_RE = /^Critical Path:\s*(.*)$/i;
+const DEPENDS_RE = /^depends\s*:\s*(.*)$/i;
+const DEP_TOKEN_RE = /^(Task\s+)?(F?\d+[a-z]?|T-?[A-Za-z0-9][A-Za-z0-9-]*)$/i;
+
+// Parse a "depends: 1, 9" note body into normalized dependency ids. Ids are
+// comma / + / & / whitespace separated; scanning STOPS at the first non-id token
+// so trailing prose ("8 for /api/status field" -> ["8"]) is discarded. Ids keep
+// a leading F via depKey so final references don't collide with numbered ids.
+function extractDepends(noteBody: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const tok of noteBody.split(/[\s,+&]+/)) {
+    if (tok === "") continue;
+    if (!DEP_TOKEN_RE.test(tok)) break;
+    const key = depKey(tok);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+  }
+  return out;
+}
 
 function stripWaveAnnotations(s: string): string {
   return s.replace(/\s*[—-]\s*✅.*$/u, "").trim();
@@ -149,13 +183,20 @@ export function parseEntry(rawLine: string): WaveEntry | null {
   }
 
   let note: string | undefined;
+  let needs: string[] = [];
   const noteMatch = TRAILING_NOTE_RE.exec(title);
   if (noteMatch) {
-    note = noteMatch[1]!.trim();
+    const body = noteMatch[1]!.trim();
     title = title.slice(0, noteMatch.index).trim();
+    const dependsMatch = DEPENDS_RE.exec(body);
+    if (dependsMatch) {
+      needs = extractDepends(dependsMatch[1]!);
+    } else {
+      note = body;
+    }
   }
 
-  const entry: WaveEntry = { id, checked, title };
+  const entry: WaveEntry = { id, checked, title, needs, blocks: [] };
   if (note !== undefined && note.length > 0) entry.note = note;
   if (category !== undefined && category.length > 0) entry.category = category;
   return entry;
@@ -221,9 +262,33 @@ export function parseWaves(section: RawSection): ParseWavesResult {
     }
   }
 
+  deriveWaveBlocks(waves);
+
   const result: ParseWavesResult = { waves, warnings };
   if (criticalPath !== undefined) result.criticalPath = criticalPath;
   return result;
+}
+
+// Populate each entry's `blocks` (reverse edges) from every entry's `needs`: if X
+// needs Y, then Y blocks X. Entries are keyed by depKey (final-aware) with first
+// wins; iteration follows wave/entry source order so output stays deterministic.
+export function deriveWaveBlocks(waves: Wave[]): void {
+  const byKey = new Map<string, WaveEntry>();
+  for (const wave of waves) {
+    for (const entry of wave.entries) {
+      const key = depKey(entry.id);
+      if (!byKey.has(key)) byKey.set(key, entry);
+    }
+  }
+  for (const wave of waves) {
+    for (const entry of wave.entries) {
+      const selfKey = depKey(entry.id);
+      for (const need of entry.needs) {
+        const target = byKey.get(need);
+        if (target && !target.blocks.includes(selfKey)) target.blocks.push(selfKey);
+      }
+    }
+  }
 }
 
 export function reconcile(

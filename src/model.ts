@@ -110,6 +110,8 @@ export interface Wave {
  * checked: true if [x], false if [ ]
  * title: "Rename repo/module → widget-service"
  * note: optional trailing note like "(PR #136)"
+ * needs: dependency ids parsed from an inline "(depends: 1, 9)" note (empty if none)
+ * blocks: reverse-dependency ids, derived from other entries' needs (empty if none)
  */
 export interface WaveEntry {
   id: string;
@@ -117,6 +119,8 @@ export interface WaveEntry {
   title: string;
   note?: string;
   category?: string;
+  needs: string[];
+  blocks: string[];
 }
 
 /**

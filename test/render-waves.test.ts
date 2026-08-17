@@ -99,7 +99,7 @@ describe("renderWaves task cards", () => {
       waves: [
         {
           name: "Wave 1",
-          entries: [{ id: "A1", checked: true, title: "Done thing" }],
+          entries: [{ id: "A1", checked: true, title: "Done thing", needs: [], blocks: [] }],
         },
       ],
       tasks: [{ id: "A1", checked: true, title: "Done thing", state: {}, fields: [] }],
@@ -117,7 +117,7 @@ describe("renderWaves task cards", () => {
       waves: [
         {
           name: "Wave 1",
-          entries: [{ id: "A2", checked: false, title: "Todo thing" }],
+          entries: [{ id: "A2", checked: false, title: "Todo thing", needs: [], blocks: [] }],
         },
       ],
       tasks: [{ id: "A2", checked: false, title: "Todo thing", state: {}, fields: [] }],
@@ -133,7 +133,7 @@ describe("renderWaves task cards", () => {
       waves: [
         {
           name: "Wave 1",
-          entries: [{ id: "B1", checked: false, title: "Has body" }],
+          entries: [{ id: "B1", checked: false, title: "Has body", needs: [], blocks: [] }],
         },
       ],
       tasks: [
@@ -156,7 +156,7 @@ describe("renderWaves task cards", () => {
       waves: [
         {
           name: "Wave 1",
-          entries: [{ id: "A3", checked: true, title: "Thing" }],
+          entries: [{ id: "A3", checked: true, title: "Thing", needs: [], blocks: [] }],
         },
       ],
       tasks: [
@@ -193,7 +193,7 @@ describe("renderWaves field rendering", () => {
     };
     const plan = basePlan({
       waves: [
-        { name: "Wave 1", entries: [{ id: "Q1", checked: false, title: "Fenced task" }] },
+        { name: "Wave 1", entries: [{ id: "Q1", checked: false, title: "Fenced task", needs: [], blocks: [] }] },
       ],
       tasks: [fenced],
     });
@@ -220,7 +220,7 @@ describe("renderWaves field rendering", () => {
     };
     const plan = basePlan({
       waves: [
-        { name: "Wave 1", entries: [{ id: "C1", checked: false, title: "Checklist task" }] },
+        { name: "Wave 1", entries: [{ id: "C1", checked: false, title: "Checklist task", needs: [], blocks: [] }] },
       ],
       tasks: [cl],
     });
@@ -240,7 +240,7 @@ describe("renderWaves field rendering", () => {
     };
     const plan = basePlan({
       waves: [
-        { name: "Wave 1", entries: [{ id: "TX1", checked: false, title: "Text task" }] },
+        { name: "Wave 1", entries: [{ id: "TX1", checked: false, title: "Text task", needs: [], blocks: [] }] },
       ],
       tasks: [tx],
     });
@@ -264,7 +264,7 @@ describe("renderWaves field rendering", () => {
     };
     const plan = basePlan({
       waves: [
-        { name: "Wave 1", entries: [{ id: "O1", checked: false, title: "Ordered" }] },
+        { name: "Wave 1", entries: [{ id: "O1", checked: false, title: "Ordered", needs: [], blocks: [] }] },
       ],
       tasks: [t],
     });
@@ -283,7 +283,7 @@ describe("renderWaves normalized reconciliation (T1 <-> task 1)", () => {
       waves: [
         {
           name: "Wave 1",
-          entries: [{ id: "T1", checked: false, title: "Rename" }],
+          entries: [{ id: "T1", checked: false, title: "Rename", needs: [], blocks: [] }],
         },
       ],
       tasks: [
@@ -309,7 +309,7 @@ describe("renderWaves normalized reconciliation (T1 <-> task 1)", () => {
       waves: [
         {
           name: "Wave FINAL",
-          entries: [{ id: "F1", checked: false, title: "Plan audit" }],
+          entries: [{ id: "F1", checked: false, title: "Plan audit", needs: [], blocks: [] }],
         },
       ],
       tasks: [
@@ -341,7 +341,7 @@ describe("renderWaves reconciliation + warnings", () => {
       waves: [
         {
           name: "Wave 1",
-          entries: [{ id: "GHOST", checked: false, title: "No task here" }],
+          entries: [{ id: "GHOST", checked: false, title: "No task here", needs: [], blocks: [] }],
         },
       ],
       tasks: [],
@@ -359,7 +359,7 @@ describe("renderWaves reconciliation + warnings", () => {
       waves: [
         {
           name: "Wave 1",
-          entries: [{ id: "A", checked: true, title: "In wave" }],
+          entries: [{ id: "A", checked: true, title: "In wave", needs: [], blocks: [] }],
         },
       ],
       tasks: [
@@ -378,7 +378,7 @@ describe("renderWaves reconciliation + warnings", () => {
       waves: [
         {
           name: "Wave 1",
-          entries: [{ id: "A", checked: true, title: "T" }],
+          entries: [{ id: "A", checked: true, title: "T", needs: [], blocks: [] }],
         },
       ],
       tasks: [{ id: "A", checked: true, title: "T", state: {}, fields: [] }],
@@ -401,9 +401,9 @@ describe("renderWaves section structure", () => {
 
   test("final-named wave always gets wf regardless of position", () => {
     const waves: Wave[] = [
-      { name: "Wave 1", entries: [{ id: "x", checked: false, title: "x" }] },
-      { name: "Final Review", entries: [{ id: "y", checked: false, title: "y" }] },
-      { name: "Wave 2", entries: [{ id: "z", checked: false, title: "z" }] },
+      { name: "Wave 1", entries: [{ id: "x", checked: false, title: "x", needs: [], blocks: [] }] },
+      { name: "Final Review", entries: [{ id: "y", checked: false, title: "y", needs: [], blocks: [] }] },
+      { name: "Wave 2", entries: [{ id: "z", checked: false, title: "z", needs: [], blocks: [] }] },
     ];
     const plan = basePlan({ waves });
     const { html } = renderWaves(plan);
@@ -418,7 +418,7 @@ describe("renderWaves entry category badge", () => {
       waves: [
         {
           name: "Wave 1",
-          entries: [{ id: "A1", checked: false, title: "Do it", category: "quick" }],
+          entries: [{ id: "A1", checked: false, title: "Do it", category: "quick", needs: [], blocks: [] }],
         },
       ],
       tasks: [{ id: "A1", checked: false, title: "Do it", state: {}, fields: [] }],
@@ -434,7 +434,7 @@ describe("renderWaves entry category badge", () => {
         {
           name: "Wave 1",
           entries: [
-            { id: "A1", checked: false, title: "X", category: "visual-engineering" },
+            { id: "A1", checked: false, title: "X", category: "visual-engineering", needs: [], blocks: [] },
           ],
         },
       ],
@@ -446,7 +446,7 @@ describe("renderWaves entry category badge", () => {
 
   test("entry without a category emits no cat badge", () => {
     const plan = basePlan({
-      waves: [{ name: "Wave 1", entries: [{ id: "A1", checked: false, title: "X" }] }],
+      waves: [{ name: "Wave 1", entries: [{ id: "A1", checked: false, title: "X", needs: [], blocks: [] }] }],
       tasks: [{ id: "A1", checked: false, title: "X", state: {}, fields: [] }],
     });
     const { html } = renderWaves(plan);
@@ -460,7 +460,7 @@ describe("renderWaves final-entry linking to #final", () => {
       waves: [
         {
           name: "Wave FINAL",
-          entries: [{ id: "F1", checked: false, title: "Plan compliance audit" }],
+          entries: [{ id: "F1", checked: false, title: "Plan compliance audit", needs: [], blocks: [] }],
         },
       ],
       finalTasks: [
@@ -477,7 +477,7 @@ describe("renderWaves final-entry linking to #final", () => {
       waves: [
         {
           name: "Wave FINAL",
-          entries: [{ id: "Task F1", checked: false, title: "Plan compliance audit" }],
+          entries: [{ id: "Task F1", checked: false, title: "Plan compliance audit", needs: [], blocks: [] }],
         },
       ],
       finalTasks: [
@@ -490,7 +490,7 @@ describe("renderWaves final-entry linking to #final", () => {
 
   test("non-final entries do not get a tlink", () => {
     const plan = basePlan({
-      waves: [{ name: "Wave 1", entries: [{ id: "A1", checked: false, title: "X" }] }],
+      waves: [{ name: "Wave 1", entries: [{ id: "A1", checked: false, title: "X", needs: [], blocks: [] }] }],
       tasks: [{ id: "A1", checked: false, title: "X", state: {}, fields: [] }],
     });
     const { html } = renderWaves(plan);

@@ -25,7 +25,7 @@ function task(id: string, checked: boolean, title: string): Task {
 }
 
 function waveEntry(id: string, checked: boolean, title: string): WaveEntry {
-  return { id, checked, title };
+  return { id, checked, title, needs: [], blocks: [] };
 }
 
 export const fixturePlan: Plan = {

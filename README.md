@@ -166,7 +166,12 @@ Recognized sections:
   fenced code block (```` ``` ````) holding an ASCII-tree wave layout. A wave
   header looks like `Wave 1-2 (description):`; entries look like
   `├── T1: [x] Title (note)` or `└── T7: [ ] Title`. A `Critical Path: ...` line
-  inside the fence, before any wave header, is captured too.
+  inside the fence, before any wave header, is captured too. A trailing
+  `(depends: 1, 9)` note on an entry is parsed as that task's dependencies and
+  shown as a subtle `Needs …` line on the card (ids may be `1`, `T2`, or
+  `T-WIDGET-CORE`; a `depends:` note is consumed, so it is not also shown as a
+  plain note). The reverse `Blocks …` line is derived automatically — if task 3
+  depends on task 1, task 1's card shows `Blocks 3`.
 - **Decisions Needed / Defaults Applied**: bold-label entries, either as list
   items (`- **Name (status)**: body`) or paragraphs (`**RESOLVED**: body`). A
   trailing `(status)` parenthetical drives the badge; `RESOLVED`, `OPEN`, and

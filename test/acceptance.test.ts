@@ -133,20 +133,27 @@ describe("acceptance: structural invariants", () => {
     expect(fcards).toBe(plan.finalTasks.length);
   });
 
-  it("every checked wave task card is shipped; every unchecked one is not", () => {
+  it("every done wave task card is shipped; every not-done one is not", () => {
     const plan = parsePlan(goldenSource());
     const { unassigned } = reconcilePlan(plan);
-    let checkedEntries = 0;
-    let uncheckedEntries = 0;
+    const lookup = buildTaskLookup(plan.tasks);
+    const finalIds = new Set(plan.finalTasks.map((f) => f.id));
+    const DONE_BADGES = new Set(["shipped", "merged", "done", "verified"]);
+    const taskDone = (t: Task | undefined): boolean =>
+      t?.state.badge !== undefined && DONE_BADGES.has(t.state.badge);
+
+    let doneEntries = 0;
+    let notDoneEntries = 0;
     for (const wave of plan.waves) {
       for (const entry of wave.entries) {
-        if (entry.checked) checkedEntries++;
-        else uncheckedEntries++;
+        const task = matchEntryToTask(entry, lookup, finalIds);
+        if (entry.checked || taskDone(task)) doneEntries++;
+        else notDoneEntries++;
       }
     }
     for (const t of unassigned) {
-      if (t.checked) checkedEntries++;
-      else uncheckedEntries++;
+      if (t.checked || taskDone(t)) doneEntries++;
+      else notDoneEntries++;
     }
 
     const html = generateGolden();
@@ -154,8 +161,8 @@ describe("acceptance: structural invariants", () => {
     const plain = countOccurrences(html, `class="tcard">`);
     const linked = countOccurrences(html, `class="tcard tcard-linked">`);
     const inprogress = countOccurrences(html, `class="tcard inprogress"`);
-    expect(shipped).toBe(checkedEntries);
-    expect(plain + linked + inprogress).toBe(uncheckedEntries);
+    expect(shipped).toBe(doneEntries);
+    expect(plain + linked + inprogress).toBe(notDoneEntries);
     expect(shipped + plain + linked + inprogress).toBe(countTcards(html));
   });
 

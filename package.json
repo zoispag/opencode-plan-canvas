@@ -1,6 +1,6 @@
 {
   "name": "opencode-plan-canvas",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Static plan→canvas generator for opencode Prometheus work plans — runs on Node and Bun",
   "type": "module",
   "bin": {

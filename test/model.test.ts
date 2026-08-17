@@ -108,6 +108,8 @@ test("model.ts exports all required types (compile-time + runtime)", () => {
     checked: true,
     title: "Repo/module rename → widget-service",
     note: "PR #12",
+    needs: [],
+    blocks: [],
   };
   expect(waveEntry.checked).toBe(true);
   expect(waveEntry.note).toBe("PR #12");

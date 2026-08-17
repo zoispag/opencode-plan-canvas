@@ -32,6 +32,17 @@ export const EXTENSION_CSS = `
   a.tlink:hover{color:var(--accent);text-decoration:none}
   .tcard-linked:hover a.tlink{color:var(--accent)}
 
+  /* Subtle per-card dependency line: "Needs 2, 5   Blocks 3, 4". */
+  .tdeps{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px}
+  .tdeps .dep{color:var(--muted)}
+  .tdeps .dep .lbl{display:inline;font-size:9.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:700;margin:0}
+
+  /* Done tasks read as complete WITHOUT relying on a badge: a green left accent
+     bar plus a stronger dim + desaturate so finished cards recede from active
+     ones. Overrides GOLDEN_CSS .tcard.shipped{opacity:.82} (later rule wins). */
+  .tcard.shipped{opacity:.6;filter:saturate(.7);border-left:3px solid var(--go)}
+  .tcard.shipped:hover{opacity:1;filter:none}
+
   /* Inline <code> gets a GitHub-style red-on-gray chip; <pre>/.qa blocks opt out. */
   code{background:var(--panel2);color:var(--danger);border:1px solid var(--border);border-radius:5px;padding:.5px 5px;font-size:12.5px}
   pre code,.qa code{background:none;color:inherit;border:0;border-radius:0;padding:0;font-size:inherit}

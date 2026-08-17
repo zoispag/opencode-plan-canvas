@@ -164,9 +164,9 @@ Wave 1–2 (widget-service cli foundation + cli image) — ✅ SHIPPED:
     T8: [x] release tool 2nd (cli) image + registry_token build secret         (#15-stack, tag WAS -legacy-)
 
 Wave A (3rd image + lockstep release — the reframe core):
-├── T-WIDGET-CORE: Dockerfile.worker HERE (base binary + FROM acme/base-runtime COPY /opt/runtime + CLI tool + LD_LIBRARY_PATH)  [unspecified-high]
-├── T-RELEASE:     release tool 3rd image entry + lockstep single-tag `-prod-` suffixes (cli+worker) + registry_token for BOTH; folds T8b cli-tag rename [deep]
-└── T6:            local-stack + kind QA harness + cli fixtures (worker e2e structural-only)  [unspecified-high]
+├── T-WIDGET-CORE: Dockerfile.worker HERE (base binary + FROM acme/base-runtime COPY /opt/runtime + CLI tool + LD_LIBRARY_PATH) (depends: T1, T7) [unspecified-high]
+├── T-RELEASE:     release tool 3rd image entry + lockstep single-tag `-prod-` suffixes (cli+worker) + registry_token for BOTH; folds T8b cli-tag rename (depends: T-WIDGET-CORE) [deep]
+└── T6:            local-stack + kind QA harness + cli fixtures (worker e2e structural-only) (depends: T2, T5) [unspecified-high]
 
 Wave B (chart move + infra tests + snapshots — depend on Wave A images):
 ├── T-DOCS:      charts/widget-service/ moved HERE + publish-chart.yaml (registry OCI, REGISTRY_TOKEN) + note deploy one-line re-point + note scheduler-repo stop-publishing  [deep]

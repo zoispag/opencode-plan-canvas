@@ -86,6 +86,22 @@ function renderField(field: TaskField): string {
   )}</div></div>`;
 }
 
+function renderDeps(entry: WaveEntry): string {
+  if (entry.needs.length === 0 && entry.blocks.length === 0) return "";
+  const parts: string[] = [];
+  if (entry.needs.length > 0) {
+    parts.push(
+      `<span class="dep"><span class="lbl">Needs</span> ${escapeHtml(entry.needs.join(", "))}</span>`,
+    );
+  }
+  if (entry.blocks.length > 0) {
+    parts.push(
+      `<span class="dep"><span class="lbl">Blocks</span> ${escapeHtml(entry.blocks.join(", "))}</span>`,
+    );
+  }
+  return `<div class="tdeps">${parts.join("")}</div>`;
+}
+
 function renderMeta(entry: WaveEntry, task: Task | undefined): string {
   const parts: string[] = [];
   if (entry.category) {
@@ -103,14 +119,23 @@ function renderMeta(entry: WaveEntry, task: Task | undefined): string {
   return `<div class="tmeta">${parts.join("")}</div>`;
 }
 
+const DONE_BADGES = new Set(["shipped", "merged", "done", "verified"]);
+
+function isDone(entry: WaveEntry, task: Task | undefined): boolean {
+  if (entry.checked) return true;
+  return task?.state.badge !== undefined && DONE_BADGES.has(task.state.badge);
+}
+
 function renderCard(
   entry: WaveEntry,
   task: Task | undefined,
   finalHref?: string,
 ): string {
-  const cls = entry.checked ? "tcard shipped" : "tcard";
-  const tid = entry.checked ? `\u2713 ${entry.id}` : entry.id;
+  const done = isDone(entry, task);
+  const cls = done ? "tcard shipped" : "tcard";
+  const tid = done ? `\u2713 ${entry.id}` : entry.id;
   const meta = renderMeta(entry, task);
+  const deps = renderDeps(entry);
   const titleHtml = renderInline(entry.title);
   const title = finalHref
     ? `<a class="tlink" href="${escapeHtml(finalHref)}">${titleHtml}</a>`
@@ -118,7 +143,8 @@ function renderCard(
   const row =
     `<div class="trow"><span class="tid">${escapeHtml(tid)}</span>` +
     `<span class="ttitle">${title}</span></div>` +
-    (meta ? `\n${meta}` : "");
+    (meta ? `\n${meta}` : "") +
+    (deps ? `\n${deps}` : "");
 
   const fields = task ? task.fields : [];
   if (fields.length === 0) {
@@ -202,6 +228,8 @@ export function renderWaves(plan: Plan): RenderResult {
         id: t.id,
         checked: t.checked,
         title: t.title,
+        needs: [],
+        blocks: [],
       })),
     };
     const color = WAVE_COLORS[nonFinalIndex % WAVE_COLORS.length];

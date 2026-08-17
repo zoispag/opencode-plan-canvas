@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { normalizeSource, splitSections } from "../src/parse/core";
 import type { RawSection } from "../src/parse/core";
 import {
+  depKey,
+  deriveWaveBlocks,
   finalAnchorId,
   isFinalEntry,
   normalizeEntryId,
@@ -325,7 +327,7 @@ describe("reconcile — normalized pairing of wave entries and tasks", () => {
 
   test("T8b entry would pair task 8b via normalized id", () => {
     const waves: Wave[] = [
-      { name: "W", entries: [{ id: "T8b", checked: false, title: "python tag rename" }] },
+      { name: "W", entries: [{ id: "T8b", checked: false, title: "python tag rename", needs: [], blocks: [] }] },
     ];
     const tasks = [task("8b")];
     const { pairs, entriesWithoutTasks } = reconcile(waves, tasks);
@@ -365,7 +367,7 @@ describe("reconcile — normalized pairing of wave entries and tasks", () => {
 
   test("reconcile is pure: does not mutate inputs; lowercase t not normalized", () => {
     const waves: Wave[] = [
-      { name: "W", entries: [{ id: "T1", checked: false, title: "x" }] },
+      { name: "W", entries: [{ id: "T1", checked: false, title: "x", needs: [], blocks: [] }] },
     ];
     const tasks = [task("t1")];
     const before = JSON.stringify({ waves, tasks });
@@ -400,8 +402,8 @@ describe("reconcile — normalized pairing of wave entries and tasks", () => {
       {
         name: "Wave 1",
         entries: [
-          { id: "Task 1", checked: true, title: "Branch + config file" },
-          { id: "Task 2", checked: true, title: "IncompleteSnapshotException" },
+          { id: "Task 1", checked: true, title: "Branch + config file", needs: [], blocks: [] },
+          { id: "Task 2", checked: true, title: "IncompleteSnapshotException", needs: [], blocks: [] },
         ],
       },
     ];
@@ -415,11 +417,80 @@ describe("reconcile — normalized pairing of wave entries and tasks", () => {
 
   test("first-wins determinism: two tasks normalizing to same key -> first registered pairs", () => {
     const waves: Wave[] = [
-      { name: "W", entries: [{ id: "T1", checked: false, title: "x" }] },
+      { name: "W", entries: [{ id: "T1", checked: false, title: "x", needs: [], blocks: [] }] },
     ];
     const a = task("1");
     const b = task("T1");
     const { pairs } = reconcile(waves, [a, b]);
     expect(pairs.get("T1")).toBe(b);
+  });
+});
+
+describe("parseEntry — inline (depends: ...) extraction", () => {
+  function needsOf(line: string): string[] {
+    return parseEntry(line)!.needs;
+  }
+
+  const cases: Array<{ line: string; needs: string[]; label: string }> = [
+    { line: "├── Task 2: X (depends: 1)", needs: ["1"], label: "single numeric" },
+    { line: "├── Task 10: X (depends: 1, 9)", needs: ["1", "9"], label: "comma list" },
+    { line: "├── T6: X (depends: T2, T5)", needs: ["2", "5"], label: "T-prefixed tokens" },
+    { line: "├── T-REL: X (depends: T-WIDGET-CORE)", needs: ["T-WIDGET-CORE"], label: "hyphenated id" },
+    { line: "├── Task 18: X (depends: 8 for /api/status field)", needs: ["8"], label: "stops at trailing prose" },
+    { line: "├── T7: X (depends: 2+5)", needs: ["2", "5"], label: "plus separator" },
+    { line: "├── T7: X (depends: 2, 2, 5)", needs: ["2", "5"], label: "dedupes" },
+  ];
+
+  for (const c of cases) {
+    test(`needs: ${c.label}`, () => {
+      expect(needsOf(c.line)).toEqual(c.needs);
+    });
+  }
+
+  test("ordinary note is preserved, not treated as deps", () => {
+    const e = parseEntry("├── T1: [x] Rename (PR #12)")!;
+    expect(e.needs).toEqual([]);
+    expect(e.note).toBe("PR #12");
+  });
+
+  test("depends note is consumed (not left as note)", () => {
+    const e = parseEntry("├── T6: X (depends: T2)")!;
+    expect(e.note).toBeUndefined();
+    expect(e.needs).toEqual(["2"]);
+  });
+
+  test("depKey preserves leading F but strips T", () => {
+    expect(depKey("F1")).toBe("F1");
+    expect(depKey("T1")).toBe("1");
+    expect(depKey("1")).toBe("1");
+    expect(depKey("T-WIDGET-CORE")).toBe("T-WIDGET-CORE");
+  });
+});
+
+describe("deriveWaveBlocks — reverse edges", () => {
+  test("if X needs Y, Y blocks X (source order, deduped)", () => {
+    const waves: Wave[] = [
+      {
+        name: "W1",
+        entries: [
+          { id: "T1", checked: false, title: "a", needs: [], blocks: [] },
+          { id: "T2", checked: false, title: "b", needs: ["1"], blocks: [] },
+          { id: "T3", checked: false, title: "c", needs: ["1", "2"], blocks: [] },
+        ],
+      },
+    ];
+    deriveWaveBlocks(waves);
+    const byId = new Map(waves[0]!.entries.map((e) => [e.id, e]));
+    expect(byId.get("T1")!.blocks).toEqual(["2", "3"]);
+    expect(byId.get("T2")!.blocks).toEqual(["3"]);
+    expect(byId.get("T3")!.blocks).toEqual([]);
+  });
+
+  test("needs referencing unknown id is dropped from blocks", () => {
+    const waves: Wave[] = [
+      { name: "W", entries: [{ id: "T1", checked: false, title: "a", needs: ["99"], blocks: [] }] },
+    ];
+    deriveWaveBlocks(waves);
+    expect(waves[0]!.entries[0]!.blocks).toEqual([]);
   });
 });
